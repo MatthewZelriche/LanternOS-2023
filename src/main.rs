@@ -1,10 +1,13 @@
 #![no_std]
 #![no_main]
 
-use core::panic::PanicInfo;
+use core::{arch::global_asm, panic::PanicInfo};
+
+// Loads our entry point, _start, written entirely in assembly
+global_asm!(include_str!("start.S"));
 
 #[no_mangle]
-pub extern "C" fn _start() -> ! {
+pub extern "C" fn main() -> ! {
     loop {}
 }
 
