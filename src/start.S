@@ -7,9 +7,20 @@ _start:
    ldr x0, =__stack
    mov sp, x0
 
-   ldr x0, =0xdeadbeef
+   // zero out the BSS
+   ldr x0, =__bss_start
+   ldr x1, =__bss_size
+   loop_bss:
+   cbz x1, jump_kernel
+   str xzr, [x0]
+   add x0, x0, #8
+   sub x1, x1, #8
+   bl loop_bss
+
 
    // Jump to kernel main
+   jump_kernel:
+   ldr x0, =0xdeadbeef
    bl main
 
    // If for some reason we ever accidentally return from kernel main, spin...
