@@ -8,17 +8,23 @@ SECTIONS
     {
       KEEP(*(.text.boot)) *(.text .text.*)
     }
+    . = ALIGN(16);
     .rodata :
     {
      	*(.rodata .rodata.*)
     }
+    . = ALIGN(16);
     .data :
     {
      	*(.data)
     }
+    . = ALIGN(16);
+    /* BSS info needed to zero out the BSS section, as expected */
     .bss :
     {
-      . = ALIGN(16);
+      __bss_start = .;
         *(.bss)
+      __bss_end = .;
     }
+    __bss_size = __bss_end - __bss_start;
 }
