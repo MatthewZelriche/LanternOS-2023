@@ -20,7 +20,6 @@ _start:
 
    // Jump to kernel main
    jump_kernel:
-   ldr x0, =0xdeadbeef
    bl main
 
    // If for some reason we ever accidentally return from kernel main, spin...
