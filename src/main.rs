@@ -4,6 +4,7 @@
 
 mod concurrency;
 mod mmio;
+mod peripherals;
 
 use bitfield::Bit;
 use core::{arch::global_asm, hint, panic::PanicInfo};
