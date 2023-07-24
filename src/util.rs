@@ -3,9 +3,11 @@ use core::panic::PanicInfo;
 #[macro_export]
 macro_rules! kprint {
     ($($arg:tt)*) => {
-        use core::fmt::Write;
-        use crate::peripherals::UART;
-        writeln!(UART.lock(), $($arg)*).unwrap();
+        {
+            use core::fmt::Write;
+            use crate::peripherals::UART;
+            writeln!(UART.lock(), $($arg)*).unwrap();
+        }
     };
 }
 
