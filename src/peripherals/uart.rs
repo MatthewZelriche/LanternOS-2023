@@ -27,7 +27,7 @@ impl Uart {
         while mmio_read(mmio::UART_FR).bit(5) {
             hint::spin_loop();
         }
-        mmio_write(mmio::UART0_BASE, byte as u64);
+        mmio_write(mmio::UART0_BASE, byte as u32);
     }
 }
 
