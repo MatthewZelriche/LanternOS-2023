@@ -2,6 +2,7 @@
 #![no_main]
 #![feature(core_intrinsics)]
 
+mod concurrency;
 mod mmio;
 
 use bitfield::Bit;

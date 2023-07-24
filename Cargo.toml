@@ -5,3 +5,5 @@ edition = "2021"
 
 [dependencies]
 bitfield = "0.14.0"
+lock_api = "0.4.10"
+generic_once_cell = "0.1.1"
