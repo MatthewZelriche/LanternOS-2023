@@ -116,3 +116,65 @@ impl GetClockRate {
         self.rate
     }
 }
+
+#[repr(C, packed)]
+pub struct GetClockRateMeasured {
+    buf_size: u32,
+    response_size: u32,
+    clock_id: u32,
+    rate: u32,
+}
+impl GetClockRateMeasured {
+    pub fn new(clock_id: u32) -> Message<GetClockRateMeasured> {
+        Message {
+            buf_size: size_of::<Message<GetClockRateMeasured>>()
+                .try_into()
+                .unwrap(),
+            code: 0,
+            tag: 0x00030002,
+            data: GetClockRateMeasured {
+                buf_size: 8,
+                response_size: 0,
+                clock_id,
+                rate: 0,
+            },
+            null: 0,
+        }
+    }
+    pub fn get_clock_id(&self) -> u32 {
+        self.clock_id
+    }
+    pub fn get_rate(&self) -> u32 {
+        self.rate
+    }
+}
+
+#[repr(C, packed)]
+pub struct SetClockRate {
+    buf_size: u32,
+    response_size: u32,
+    clock_id: u32,
+    rate: u32,
+    skip_turbo: u32,
+}
+impl SetClockRate {
+    pub fn new(clock_id: u32, rate: u32) -> Message<SetClockRate> {
+        Message {
+            buf_size: size_of::<Message<SetClockRate>>().try_into().unwrap(),
+            code: 0,
+            tag: 0x00038002,
+            data: SetClockRate {
+                buf_size: 12,
+                response_size: 0,
+                clock_id,
+                rate,
+                skip_turbo: 0,
+            },
+            null: 0,
+        }
+    }
+
+    pub fn get_rate(&self) -> u32 {
+        self.rate
+    }
+}
