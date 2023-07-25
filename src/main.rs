@@ -16,7 +16,7 @@ use crate::peripherals::{mailbox::GetClockRate, MAILBOX};
 global_asm!(include_str!("start.S"));
 
 #[no_mangle]
-pub extern "C" fn main() -> ! {
+pub extern "C" fn main(dtb_ptr: u64) -> ! {
     // Print current UART clock rate
     let msg = GetClockRate::new(2);
     let msg = MAILBOX.lock().send_message(msg).unwrap();

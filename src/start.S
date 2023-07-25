@@ -13,17 +13,17 @@ _start:
 
    // Set the start of the stack
    setup_stack:
-   ldr x0, =__stack
-   mov sp, x0
+   ldr x1, =__stack
+   mov sp, x1
 
    // zero out the BSS
-   ldr x0, =__bss_start
-   ldr x1, =__bss_size
+   ldr x1, =__bss_start
+   ldr x2, =__bss_size
    loop_bss:
-   cbz x1, jump_kernel
-   str xzr, [x0]
-   add x0, x0, #8
-   sub x1, x1, #8
+   cbz x2, jump_kernel
+   str xzr, [x1]
+   add x1, x1, #8
+   sub x2, x2, #8
    bl loop_bss
 
 
