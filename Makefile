@@ -15,7 +15,7 @@ kernel-dbg:
 	cargo objcopy --target aarch64-unknown-none -- out/debug.img
 
 qemu: kernel-dbg
-	$(QEMU_PATH)qemu-system-aarch64 -M raspi4b8g -kernel out/debug.img -serial stdio
+	$(QEMU_PATH)qemu-system-aarch64 -M raspi4b4g -kernel out/debug.img -serial stdio
 
 clean:
 	cargo clean
