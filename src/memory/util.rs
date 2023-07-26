@@ -1,6 +1,6 @@
 use core::fmt::Display;
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub struct MemSize {
     pub bytes: u64,
 }
@@ -31,9 +31,9 @@ impl Display for MemSize {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             x if x.to_bytes() < 1024 => write!(f, "{} B", self.to_bytes()),
-            x if x.to_kib() < 1024.0 => write!(f, "{} KiB", self.to_kib()),
-            x if x.to_mib() < 1024.0 => write!(f, "{} MiB", self.to_mib()),
-            x if x.to_gib() < 1024.0 => write!(f, "{} GiB", self.to_gib()),
+            x if x.to_kib() < 1024.0 => write!(f, "{:.3} KiB", self.to_kib()),
+            x if x.to_mib() < 1024.0 => write!(f, "{:.3} MiB", self.to_mib()),
+            x if x.to_gib() < 1024.0 => write!(f, "{:.3} GiB", self.to_gib()),
             _ => write!(f, "{} B", self.to_bytes()),
         }
     }
