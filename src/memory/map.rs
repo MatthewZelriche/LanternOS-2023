@@ -7,7 +7,10 @@ use fdt_rs::{
     prelude::{FallibleIterator, PropReader},
 };
 
-use crate::mmio::{PERIPHERALS_BASE, PERIPHERALS_END};
+use crate::{
+    mmio::{PERIPHERALS_BASE, PERIPHERALS_END},
+    peripherals::{mailbox::GetGpuMemory, MAILBOX},
+};
 
 use super::{get_page_addr, util::MemSize, PAGE_SZ};
 
@@ -204,6 +207,22 @@ impl MemoryMap {
             entry_type: EntryType::DtReserved,
         })?;
 
+        // Reserve GPU firmware
+        let msg = GetGpuMemory::new();
+        let msg = MAILBOX
+            .lock()
+            .send_message(msg)
+            .map_err(|_| DevTreeError::ParseError)?;
+        let start: u64 = msg.data.get_base().into();
+        let size: u64 = msg.data.get_size().into();
+        let end: u64 = start + size;
+        map.add_entry(MemoryMapEntry {
+            base_addr: start,
+            size: MemSize { bytes: size.into() },
+            end_addr: end,
+            entry_type: EntryType::_Firmware,
+        })?;
+
         // Reserve the region for MMIO
         let size = PERIPHERALS_END - PERIPHERALS_BASE;
         map.add_entry(MemoryMapEntry {
@@ -240,33 +259,25 @@ impl MemoryMap {
     }
 
     fn add_entry(&mut self, entry: MemoryMapEntry) -> Result<(), DevTreeError> {
-        match entry.entry_type {
-            EntryType::Free => self
-                .entries
-                .try_push(entry)
-                .map_err(|_| DevTreeError::NotEnoughMemory),
-            _ => {
-                // Remove free entries if they are completely consumed by a reserved entry
-                self.entries.retain(|x| !entry.fully_contains(x));
+        // Remove free entries if they are completely consumed by a reserved entry
+        self.entries.retain(|x| !entry.fully_contains(x));
 
-                // Reduce our free space
-                let mut new_entries: ArrayVec<MemoryMapEntry, 2> = ArrayVec::new();
-                for existing in self.entries.as_mut_slice() {
-                    if let Some(additional_entry) = existing.reduce(&entry) {
-                        new_entries.push(additional_entry);
-                    }
-                }
-
-                // Add any newly created entries to accomodate the reserved entry
-                self.entries
-                    .try_extend_from_slice(&new_entries)
-                    .map_err(|_| DevTreeError::NotEnoughMemory)?;
-
-                // Add the reserved entry and return
-                self.entries
-                    .try_push(entry)
-                    .map_err(|_| DevTreeError::NotEnoughMemory)
+        // Reduce our free space
+        let mut new_entries: ArrayVec<MemoryMapEntry, 4> = ArrayVec::new();
+        for existing in self.entries.as_mut_slice() {
+            if let Some(additional_entry) = existing.reduce(&entry) {
+                new_entries.push(additional_entry);
             }
         }
+
+        // Add any newly created entries to accomodate the reserved entry
+        self.entries
+            .try_extend_from_slice(&new_entries)
+            .map_err(|_| DevTreeError::NotEnoughMemory)?;
+
+        // Add the reserved entry and return
+        self.entries
+            .try_push(entry)
+            .map_err(|_| DevTreeError::NotEnoughMemory)
     }
 }

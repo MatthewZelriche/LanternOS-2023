@@ -88,6 +88,36 @@ impl GetArmMemory {
 }
 
 #[repr(C, packed)]
+pub struct GetGpuMemory {
+    buf_size: u32,
+    response_size: u32,
+    base: u32,
+    size: u32,
+}
+impl GetGpuMemory {
+    pub fn new() -> Message<GetGpuMemory> {
+        Message {
+            buf_size: size_of::<Message<GetGpuMemory>>().try_into().unwrap(),
+            code: 0,
+            tag: 0x00010006,
+            data: GetGpuMemory {
+                buf_size: 8,
+                response_size: 0,
+                base: 0,
+                size: 0,
+            },
+            null: 0,
+        }
+    }
+    pub fn get_base(&self) -> u32 {
+        self.base
+    }
+    pub fn get_size(&self) -> u32 {
+        self.size
+    }
+}
+
+#[repr(C, packed)]
 pub struct GetClockRate {
     buf_size: u32,
     response_size: u32,
