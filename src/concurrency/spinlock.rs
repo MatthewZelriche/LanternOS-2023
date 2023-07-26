@@ -22,4 +22,3 @@ unsafe impl RawMutex for RawSpinlock {
 }
 
 pub type Spinlock<T> = lock_api::Mutex<RawSpinlock, T>;
-pub type SpinlockGuard<'a, T> = lock_api::MutexGuard<'a, RawSpinlock, T>;
