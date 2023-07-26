@@ -7,6 +7,8 @@ use fdt_rs::{
     prelude::{FallibleIterator, PropReader},
 };
 
+use crate::mmio::{PERIPHERALS_BASE, PERIPHERALS_END};
+
 use super::{get_page_addr, util::MemSize, PAGE_SZ};
 
 #[derive(Default, Clone, Copy)]
@@ -16,7 +18,7 @@ pub enum EntryType {
     DtReserved,
     _Firmware,
     _Kernel,
-    _Mmio,
+    Mmio,
 }
 
 impl EntryType {
@@ -26,7 +28,7 @@ impl EntryType {
             EntryType::DtReserved => "DeviceTree",
             EntryType::_Firmware => "Firmware",
             EntryType::_Kernel => "Kernel",
-            EntryType::_Mmio => "MMIO",
+            EntryType::Mmio => "MMIO",
         }
     }
 }
@@ -185,6 +187,7 @@ impl MemoryMap {
             })?;
 
         // Now we can start assigning reserved blocks...
+
         // Find and reserve pages for the DTB
         let dtb_page_start = get_page_addr(dtb_ptr as u64);
         let dtb_page_end = (dtb_page_start + dtb.totalsize() as u64).next_multiple_of(PAGE_SZ);
@@ -198,6 +201,15 @@ impl MemoryMap {
             entry_type: EntryType::DtReserved,
         })?;
 
+        // Reserve the region for MMIO
+        let size = PERIPHERALS_END - PERIPHERALS_BASE;
+        map.add_entry(MemoryMapEntry {
+            base_addr: PERIPHERALS_BASE,
+            size: MemSize { bytes: size },
+            end_addr: PERIPHERALS_END,
+            entry_type: EntryType::Mmio,
+        })?;
+
         map.addr_end = max_addr;
         if map.addr_end == 0 {
             Err(DevTreeError::ParseError)
@@ -209,7 +221,10 @@ impl MemoryMap {
     pub fn get_free_mem(&self) -> MemSize {
         let mut bytes = 0;
         for entry in &self.entries {
-            bytes += entry.size.to_bytes();
+            match entry.entry_type {
+                EntryType::Free => bytes += entry.size.to_bytes(),
+                _ => (),
+            }
         }
 
         MemSize { bytes }

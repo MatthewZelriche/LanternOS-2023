@@ -1,4 +1,9 @@
-pub const MMIO_BASE: u32 = 0xFE000000;
+// From: https://datasheets.raspberrypi.com/bcm2711/bcm2711-peripherals.pdf
+// Used for reserving this range in the memory map
+pub const PERIPHERALS_BASE: u64 = 0xFC000000;
+pub const PERIPHERALS_END: u64 = 0x100000000;
+
+//pub const MMIO_BASE: u32 = 0x3F000000; // Raspi3
 
 pub const GPIO_BASE: u32 = MMIO_BASE + 0x200000;
 pub const _GPPUD: u32 = GPIO_BASE + 0x94;
