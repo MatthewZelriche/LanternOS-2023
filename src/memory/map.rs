@@ -1,5 +1,6 @@
 use core::fmt::Display;
 
+use arrayvec::ArrayVec;
 use fdt_rs::{
     base::DevTree,
     error::DevTreeError,
@@ -43,8 +44,7 @@ pub struct MemoryMap {
     // of our physical address space. But we need to determine our memory map at runtime...
     // For now, since we don't have access to page allocation this early, we assume no more than
     // 32 entries in the memory map.
-    entries: [MemoryMapEntry; 32],
-    next_idx: usize,
+    entries: ArrayVec<MemoryMapEntry, 32>,
     addr_end: u64,
 }
 
@@ -63,8 +63,7 @@ impl Display for MemoryMap {
 impl MemoryMap {
     pub fn new(dtb_ptr: *const u8) -> Result<MemoryMap, DevTreeError> {
         let mut map = MemoryMap {
-            entries: Default::default(),
-            next_idx: 0,
+            entries: ArrayVec::new(),
             addr_end: 0,
         };
 
@@ -151,12 +150,8 @@ impl MemoryMap {
     }
 
     fn add_entry(&mut self, entry: MemoryMapEntry) -> Result<(), DevTreeError> {
-        if self.next_idx > 31 {
-            Err(DevTreeError::NotEnoughMemory)
-        } else {
-            self.entries[self.next_idx] = entry;
-            self.next_idx += 1;
-            Ok(())
-        }
+        self.entries
+            .try_push(entry)
+            .map_err(|_| DevTreeError::NotEnoughMemory)
     }
 }
