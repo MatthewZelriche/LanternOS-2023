@@ -42,6 +42,10 @@ pub struct MemoryMapEntry {
 }
 
 impl MemoryMapEntry {
+    fn contains(&self, other: &Self) -> bool {
+        let range = self.base_addr..self.end_addr;
+        range.contains(&other.base_addr) || range.contains(&other.end_addr)
+    }
     fn fully_contains(&self, other: &Self) -> bool {
         let range = self.base_addr..self.end_addr;
         range.contains(&other.base_addr) && range.contains(&other.end_addr)
@@ -49,23 +53,22 @@ impl MemoryMapEntry {
 
     fn reduce(&mut self, other: &Self) -> Option<MemoryMapEntry> {
         let mut new_block = None;
-        let range = other.base_addr..other.end_addr;
-        if range.contains(&self.base_addr) || range.contains(&self.end_addr) {
+        if self.contains(other) {
             if other.base_addr <= self.base_addr {
                 self.base_addr = other.end_addr;
                 self.size = MemSize {
-                    bytes: self.base_addr + self.end_addr,
+                    bytes: self.end_addr - self.base_addr,
                 };
-            } else if other.base_addr >= self.end_addr {
+            } else if other.end_addr >= self.end_addr {
                 self.end_addr = other.base_addr;
                 self.size = MemSize {
-                    bytes: self.base_addr + self.end_addr,
+                    bytes: self.end_addr - self.base_addr,
                 };
             } else {
                 // Truncate original
                 self.end_addr = other.base_addr;
                 self.size = MemSize {
-                    bytes: self.base_addr + self.end_addr,
+                    bytes: self.end_addr - self.base_addr,
                 };
 
                 // Add new free after reserved
