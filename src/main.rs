@@ -2,6 +2,7 @@
 #![no_main]
 #![feature(core_intrinsics)]
 #![feature(pointer_is_aligned)]
+#![feature(int_roundings)]
 
 mod concurrency;
 mod memory;
