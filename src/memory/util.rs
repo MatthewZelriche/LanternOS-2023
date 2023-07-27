@@ -1,4 +1,4 @@
-use core::fmt::Display;
+use core::{fmt::Display, ops::Sub};
 
 #[derive(Default, Clone, Copy)]
 pub struct MemSize {
@@ -24,6 +24,14 @@ impl MemSize {
 
     pub fn to_gib(&self) -> f64 {
         self.bytes as f64 / MemSize::GIB_DIV
+    }
+}
+
+impl Sub for MemSize {
+    type Output = u64;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        self.bytes - rhs.bytes
     }
 }
 
