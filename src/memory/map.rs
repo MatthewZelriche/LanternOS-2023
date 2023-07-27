@@ -68,6 +68,7 @@ impl MemoryMapEntry {
                     bytes: self.end_addr - self.base_addr,
                 };
             } else {
+                let old_end = self.end_addr;
                 // Truncate original
                 self.end_addr = other.base_addr;
                 self.size = MemSize {
@@ -76,7 +77,7 @@ impl MemoryMapEntry {
 
                 // Add new free after reserved
                 let base = other.end_addr;
-                let end = self.end_addr;
+                let end = old_end;
                 new_block = Some(MemoryMapEntry {
                     base_addr: other.end_addr,
                     size: MemSize { bytes: end - base },
