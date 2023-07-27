@@ -1,5 +1,7 @@
 SECTIONS
 {
+    . = 0x7D120; /* 12kib kernel stack */
+    __stack_end = .;
     /* RPI4 expects boot code at this addr */
     /* We also start our stack here - eventually we will need a stack guard */
     . = 0x80000;
@@ -26,5 +28,6 @@ SECTIONS
         *(.bss)
       __bss_end = .;
     }
+    __kernel_end = .;
     __bss_size = __bss_end - __bss_start;
 }

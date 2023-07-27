@@ -7,6 +7,12 @@ use fdt_rs::{
     prelude::{FallibleIterator, PropReader},
 };
 
+extern "C" {
+    static __stack_end: u8;
+    static __kernel_end: u8;
+    static __stack: u8;
+}
+
 use crate::{
     mmio::{PERIPHERALS_BASE, PERIPHERALS_END},
     peripherals::{mailbox::GetGpuMemory, MAILBOX},
@@ -19,8 +25,8 @@ pub enum EntryType {
     #[default]
     Free,
     DtReserved,
-    _Firmware,
-    _Kernel,
+    Firmware,
+    Kernel,
     Mmio,
 }
 
@@ -29,8 +35,8 @@ impl EntryType {
         match self {
             EntryType::Free => "Free",
             EntryType::DtReserved => "DeviceTree",
-            EntryType::_Firmware => "Firmware",
-            EntryType::_Kernel => "Kernel",
+            EntryType::Firmware => "Firmware",
+            EntryType::Kernel => "Kernel",
             EntryType::Mmio => "MMIO",
         }
     }
@@ -221,7 +227,7 @@ impl MemoryMap {
             base_addr: start,
             size: MemSize { bytes: size.into() },
             end_addr: end,
-            entry_type: EntryType::_Firmware,
+            entry_type: EntryType::Firmware,
         })?;
 
         // Reserve the region for MMIO
@@ -232,6 +238,27 @@ impl MemoryMap {
             end_addr: PERIPHERALS_END,
             entry_type: EntryType::Mmio,
         })?;
+
+        // Reserve the kernel region
+        let kern_start;
+        let kern_end;
+        unsafe {
+            kern_start = (&__stack_end as *const u8) as u64;
+            kern_end = &__kernel_end as *const u8 as u64;
+        }
+        let kernel_start_page_addr = get_page_addr(kern_start);
+        let kernel_end_page_addr = kern_end.next_multiple_of(PAGE_SZ);
+        let kernel_size = kernel_end_page_addr - kernel_start_page_addr;
+        map.add_entry(MemoryMapEntry {
+            base_addr: kernel_start_page_addr,
+            size: MemSize { bytes: kernel_size },
+            end_addr: kernel_end_page_addr,
+            entry_type: EntryType::Kernel,
+        })?;
+
+        // Sort the map from 0 to max addr
+        map.entries
+            .sort_unstable_by(|a, b| a.base_addr.cmp(&b.base_addr));
 
         map.addr_end = max_addr;
         if map.addr_end == 0 {
