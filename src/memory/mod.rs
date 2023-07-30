@@ -1,6 +1,14 @@
+use generic_once_cell::OnceCell;
+
+use crate::concurrency::spinlock::{RawSpinlock, Spinlock};
+
+use self::frame_allocator::PageFrameAllocator;
+
 pub mod frame_allocator;
 pub mod map;
 pub mod util;
+
+pub static FRAME_ALLOCATOR: OnceCell<RawSpinlock, Spinlock<PageFrameAllocator>> = OnceCell::new();
 
 // Size of pages, in bytes
 pub const PAGE_SZ: u64 = 0x1000;

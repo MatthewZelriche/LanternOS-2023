@@ -10,7 +10,13 @@ mod mmio;
 mod peripherals;
 mod util;
 
-use crate::memory::{frame_allocator::PageFrameAllocator, map::MemoryMap, util::MemSize, PAGE_SZ};
+use crate::{
+    concurrency::spinlock::Spinlock,
+    memory::{
+        frame_allocator::PageFrameAllocator, map::MemoryMap, util::MemSize, FRAME_ALLOCATOR,
+        PAGE_SZ,
+    },
+};
 use core::arch::global_asm;
 
 // Loads our entry point, _start, written entirely in assembly
@@ -38,10 +44,12 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     kprint!("{}", map);
 
     kprint!("Setting up page frame allocator...");
-    let frame_allocator = PageFrameAllocator::new(&map);
+    // This early init runs with 1 core and IRQ disabled, so we dont have to worry about get().unwrap() to
+    // this frame allocator ever failing
+    FRAME_ALLOCATOR.get_or_init(|| Spinlock::new(PageFrameAllocator::new(&map)));
     kprint!(
         "Initialized page frame allocator with {} free pages",
-        frame_allocator.num_free_pages()
+        FRAME_ALLOCATOR.get().unwrap().lock().num_free_pages()
     );
 
     // Never return from this diverging fn
