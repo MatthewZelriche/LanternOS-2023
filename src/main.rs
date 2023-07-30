@@ -10,7 +10,7 @@ mod mmio;
 mod peripherals;
 mod util;
 
-use crate::memory::{map::MemoryMap, util::MemSize, PAGE_SZ};
+use crate::memory::{frame_allocator::PageFrameAllocator, map::MemoryMap, util::MemSize, PAGE_SZ};
 use core::arch::global_asm;
 
 // Loads our entry point, _start, written entirely in assembly
@@ -36,6 +36,13 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     kprint!("Avail Memory:    {}", map.get_free_mem());
     kprint!("");
     kprint!("{}", map);
+
+    kprint!("Setting up page frame allocator...");
+    let frame_allocator = PageFrameAllocator::new(&map);
+    kprint!(
+        "Initialized page frame allocator with {} free pages",
+        frame_allocator.num_free_pages()
+    );
 
     // Never return from this diverging fn
     panic!("Reached end of kmain!")

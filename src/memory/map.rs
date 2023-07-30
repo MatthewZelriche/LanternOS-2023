@@ -280,6 +280,10 @@ impl MemoryMap {
         MemSize { bytes }
     }
 
+    pub fn get_entries(&self) -> &ArrayVec<MemoryMapEntry, 32> {
+        &self.entries
+    }
+
     pub fn get_total_mem(&self) -> MemSize {
         MemSize {
             bytes: self.addr_end,
