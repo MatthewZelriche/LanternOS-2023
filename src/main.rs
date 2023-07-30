@@ -18,7 +18,7 @@ global_asm!(include_str!("start.S"));
 
 #[no_mangle]
 pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
-    kprint!("Booting kernel...");
+    kprint!("Booting kernel in privilage mode EL1...");
     kprint!("");
     // Load the dtb
     // Panic if we can't load it, for now
