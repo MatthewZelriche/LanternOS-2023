@@ -57,9 +57,9 @@ pub extern "C" fn main(dtb_ptr: *const u8) {
     // Identity map all of physical memory to 4KiB pages
     let max_addr = map.get_total_mem().to_bytes();
 
-    for page in (0..max_addr).step_by(0x1000) {
+    for page in (0..max_addr).step_by(0x40000000) {
         page_table
-            .map_page(page)
+            .map_1gib_page(page)
             .expect("Failed to Identity map full physical memory");
     }
 
