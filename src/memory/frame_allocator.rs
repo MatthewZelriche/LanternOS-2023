@@ -68,15 +68,15 @@ impl PageFrameAllocator<'_> {
         Ok(())
     }
 
-    pub fn alloc_page(&mut self) -> Result<*mut u64, ()> {
+    pub fn alloc_page(&mut self) -> *mut u64 {
         match self.freelist {
             Some(head) => {
                 let addr = head as *const Node as *mut u64;
                 self.freelist = head.next;
                 self.num_free -= 1;
-                Ok(addr)
+                addr
             }
-            None => Err(()),
+            None => panic!("Page Frame Allocator ran out of physical memory"),
         }
     }
 }
