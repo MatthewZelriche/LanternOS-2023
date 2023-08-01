@@ -13,8 +13,8 @@ mod util;
 use crate::{
     concurrency::spinlock::Spinlock,
     memory::{
-        frame_allocator::PageFrameAllocator, map::MemoryMap, util::MemSize, FRAME_ALLOCATOR,
-        PAGE_SZ,
+        frame_allocator::PageFrameAllocator, init_mmu::init_mmu, map::MemoryMap,
+        paging::PageTableRoot, util::MemSize, FRAME_ALLOCATOR, PAGE_SZ,
     },
 };
 use core::arch::global_asm;
@@ -23,7 +23,7 @@ use core::arch::global_asm;
 global_asm!(include_str!("start.S"));
 
 #[no_mangle]
-pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
+pub extern "C" fn main(dtb_ptr: *const u8) {
     kprint!("Booting kernel in privilage mode EL1...");
     kprint!("");
     // Load the dtb
@@ -51,6 +51,21 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
         "Initialized page frame allocator with {} free pages",
         FRAME_ALLOCATOR.get().unwrap().lock().num_free_pages()
     );
+
+    kprint!("Identity mapping all physical memory...");
+    let mut page_table = PageTableRoot::new();
+    // Identity map all of physical memory to 4KiB pages
+    let max_addr = map.get_total_mem().to_bytes();
+
+    for page in (0..max_addr).step_by(0x1000) {
+        page_table
+            .map_page(page)
+            .expect("Failed to Identity map full physical memory");
+    }
+
+    // Turn on the MMU. From here on we are operating on virtual addresses
+    init_mmu(&page_table);
+    kprint!("MMU initialized to identity mapping scheme");
 
     // Never return from this diverging fn
     panic!("Reached end of kmain!")
