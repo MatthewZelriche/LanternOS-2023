@@ -7,7 +7,6 @@
 mod concurrency;
 mod memory;
 mod peripherals;
-mod util;
 
 use crate::{
     concurrency::spinlock::Spinlock,
@@ -25,10 +24,22 @@ use crate::{
         MMIO, UART,
     },
 };
+use core::panic::PanicInfo;
 use core::{arch::global_asm, fmt::Write};
 
 // Loads our entry point, _start, written entirely in assembly
 global_asm!(include_str!("start.S"));
+
+#[macro_export]
+macro_rules! kprint {
+    ($($arg:tt)*) => {
+        {
+            use core::fmt::Write;
+            use crate::peripherals::UART;
+            writeln!(UART.lock(), $($arg)*).unwrap();
+        }
+    };
+}
 
 #[no_mangle]
 pub extern "C" fn main(dtb_ptr: *const u8) {
@@ -95,4 +106,10 @@ pub extern "C" fn main(dtb_ptr: *const u8) {
 
     // Never return from this diverging fn
     panic!("Reached end of kmain!")
+}
+
+#[panic_handler]
+fn panic(_info: &PanicInfo) -> ! {
+    kprint!("{}", _info);
+    loop {}
 }

@@ -6,13 +6,13 @@ QEMU_PATH=
 kernel:
 	cargo build --release --target aarch64-unknown-none
 	mkdir -p out/
-	cargo objcopy --release --target aarch64-unknown-none -- -O binary out/kernel8.img
+	cargo objcopy --release --bin kernel --target aarch64-unknown-none -- -O binary out/kernel8.img
 
 
 kernel-dbg:
 	cargo build --target aarch64-unknown-none
 	mkdir -p out/
-	cargo objcopy --target aarch64-unknown-none -- out/debug.img
+	cargo objcopy --bin kernel --target aarch64-unknown-none -- out/debug.img
 
 qemu: kernel-dbg
 	$(QEMU_PATH)qemu-system-aarch64 -M raspi4b4g -kernel out/debug.img -serial stdio

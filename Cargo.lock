@@ -30,6 +30,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2d7e60934ceec538daadb9d8432424ed043a904d8e0243f3c6446bce549a46ac"
 
 [[package]]
+name = "bootloader-raspi"
+version = "0.1.0"
+
+[[package]]
 name = "endian-type-rs"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -67,7 +71,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "lantern-os"
+name = "kernel"
 version = "0.1.0"
 dependencies = [
  "aarch64-cpu",
