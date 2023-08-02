@@ -2,7 +2,10 @@ use core::{hint, intrinsics::size_of};
 
 use bitfield::{Bit, BitRangeMut};
 
-use crate::mmio::{mmio_read, mmio_write, MBOX_STATUS, MBOX_WR};
+use crate::peripherals::{
+    mmio::{mmio_read, mmio_write},
+    MMIO,
+};
 
 const RESP_SUCCESS: u32 = 0x80000000;
 const _RESP_FAIL: u32 = 0x80000001;
@@ -17,6 +20,8 @@ impl Mailbox {
     }
 
     pub fn send_message<T>(&self, mut msg: Message<T>) -> Result<Message<T>, ()> {
+        let mmio_lock = MMIO.lock();
+
         // Ptr we receive must be aligned to 16 bytes
         let ptr = &mut msg as *mut Message<T>;
         assert!(ptr.is_aligned_to(16));
@@ -27,16 +32,16 @@ impl Mailbox {
         register_data.set_bit_range(3, 0, 8);
 
         // Blocking request...
-        while mmio_read(MBOX_STATUS).bit(MBOX_FULL_BIT) {
+        while mmio_read(mmio_lock.mbox_status).bit(MBOX_FULL_BIT) {
             hint::spin_loop();
         }
 
-        mmio_write(MBOX_WR, register_data as u32);
+        mmio_write(mmio_lock.mbox_wr, register_data as u32);
 
         // Wait until we've received a response...
         // TODO: Note that when we become multithreaded this might cause problems, as
         // we might get the "wrong" message back
-        while mmio_read(MBOX_STATUS).bit(MBOX_EMPTY_BIT) {
+        while mmio_read(mmio_lock.mbox_status).bit(MBOX_EMPTY_BIT) {
             hint::spin_loop();
         }
 

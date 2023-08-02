@@ -13,10 +13,7 @@ extern "C" {
     static __stack: u8;
 }
 
-use crate::{
-    mmio::{PERIPHERALS_BASE, PERIPHERALS_END},
-    peripherals::{mailbox::GetGpuMemory, MAILBOX},
-};
+use crate::peripherals::{mailbox::GetGpuMemory, mmio::Mmio, MAILBOX};
 
 use super::{get_page_addr, util::MemSize, PAGE_SZ};
 
@@ -231,11 +228,11 @@ impl MemoryMap {
         })?;
 
         // Reserve the region for MMIO
-        let size = PERIPHERALS_END - PERIPHERALS_BASE;
+        let size = Mmio::PERIPHERALS_PHYS_END - Mmio::PERIPHERALS_PHYS_BASE;
         map.add_entry(MemoryMapEntry {
-            base_addr: PERIPHERALS_BASE,
+            base_addr: Mmio::PERIPHERALS_PHYS_BASE,
             size: MemSize { bytes: size },
-            end_addr: PERIPHERALS_END,
+            end_addr: Mmio::PERIPHERALS_PHYS_END,
             entry_type: EntryType::Mmio,
         })?;
 

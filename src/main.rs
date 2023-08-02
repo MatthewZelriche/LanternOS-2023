@@ -6,19 +6,26 @@
 
 mod concurrency;
 mod memory;
-mod mmio;
 mod peripherals;
 mod util;
 
 use crate::{
     concurrency::spinlock::Spinlock,
     memory::{
-        frame_allocator::PageFrameAllocator, init_mmu::init_mmu, map::MemoryMap,
-        paging::PageTableRoot, util::MemSize, FRAME_ALLOCATOR, PAGE_SZ,
+        frame_allocator::PageFrameAllocator,
+        init_mmu::init_mmu,
+        map::MemoryMap,
+        paging::{PageTableRoot, VirtualAddr},
+        util::MemSize,
+        FRAME_ALLOCATOR, PAGE_SZ,
     },
-    mmio::{mmio_write, MMIO_BASE, MMIO_MAX},
+    peripherals::{
+        mmio::{mmio_write, Mmio},
+        uart::Uart,
+        MMIO, UART,
+    },
 };
-use core::arch::global_asm;
+use core::{arch::global_asm, fmt::Write};
 
 // Loads our entry point, _start, written entirely in assembly
 global_asm!(include_str!("start.S"));
@@ -67,18 +74,24 @@ pub extern "C" fn main(dtb_ptr: *const u8) {
     // DEVICE memory
     // Uses 2MiB pages
     // TODO: Change the linear offset we are using
-    let NEW_MMIO_BASE: u64 = 0x1000000000;
-    for page in (MMIO_BASE as u64..MMIO_MAX).step_by(0x200000) {
+    let new_mmio_base: u64 = 0x1000000000;
+    for page in (Mmio::MMIO_PHYS_BASE..Mmio::PERIPHERALS_PHYS_END).step_by(0x200000) {
+        let virt_offset = page - Mmio::MMIO_PHYS_BASE;
         page_table
-            .map_2mib_page(page, NEW_MMIO_BASE)
+            .map_2mib_page(page, VirtualAddr(new_mmio_base + virt_offset))
             .expect("Failed to Identity map device memory");
     }
 
     // Turn on the MMU. From here on we are operating on virtual addresses
+    // Safety: From here on, it's crucially important to no longer access the MMIO region
+    // from the identity mapping, as the identity mapping is mapped to Normal cachable memory,
+    // resulting in aliasing
     init_mmu(&page_table);
-    kprint!("MMU initialized to identity mapping scheme");
 
-    mmio_write((NEW_MMIO_BASE + 0xFE201000) as u32, 'n' as u32);
+    // Set the MMIO base to our chosen virtual address
+    MMIO.lock().set_base(new_mmio_base);
+    kprint!("MMU initialized to identity mapping scheme");
+    kprint!("Switched MMIO to secondary virtual address");
 
     // Never return from this diverging fn
     panic!("Reached end of kmain!")

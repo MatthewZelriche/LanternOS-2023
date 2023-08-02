@@ -108,10 +108,8 @@ impl PageTableRoot<'_> {
         }
     }
 
-    pub fn map_2mib_page(&mut self, phys: u64, linear_offset: u64) -> Result<(), ()> {
-        assert!((phys as *mut u64).is_aligned_to(0x200000));
-
-        let virt_addr = VirtualAddr(linear_offset + phys);
+    pub fn map_2mib_page(&mut self, phys: u64, virt_addr: VirtualAddr) -> Result<(), ()> {
+        assert!((virt_addr.0 as *mut u64).is_aligned_to(0x200000));
 
         let lvl0_table = &mut self.lvl0_table;
         let mut lvl0_descriptor = lvl0_table[virt_addr.lvl0_idx() as usize];
