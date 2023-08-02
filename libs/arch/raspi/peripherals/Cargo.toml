@@ -1,0 +1,12 @@
+[package]
+name = "raspi-peripherals"
+version = "0.1.0"
+edition = "2021"
+crate-type = ["staticlib"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+raspi-concurrency = { path = "../concurrency" }
+generic_once_cell = "0.1.1"
+bitfield = "0.14.0"

@@ -1,6 +1,6 @@
 pub struct Uart;
 
-use crate::peripherals::mmio::{mmio_read, mmio_write};
+use crate::mmio::{mmio_read, mmio_write};
 use bitfield::{Bit, BitMut};
 use core::{fmt::Write, hint};
 

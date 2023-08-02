@@ -4,28 +4,20 @@
 #![feature(pointer_is_aligned)]
 #![feature(int_roundings)]
 
-mod concurrency;
 mod memory;
-mod peripherals;
 
-use crate::{
-    concurrency::spinlock::Spinlock,
-    memory::{
-        frame_allocator::PageFrameAllocator,
-        init_mmu::init_mmu,
-        map::MemoryMap,
-        paging::{PageTableRoot, VirtualAddr},
-        util::MemSize,
-        FRAME_ALLOCATOR, PAGE_SZ,
-    },
-    peripherals::{
-        mmio::{mmio_write, Mmio},
-        uart::Uart,
-        MMIO, UART,
-    },
-};
+use core::arch::global_asm;
 use core::panic::PanicInfo;
-use core::{arch::global_asm, fmt::Write};
+
+use raspi_concurrency::spinlock::Spinlock;
+use raspi_peripherals::mmio::Mmio;
+use raspi_peripherals::MMIO;
+
+use crate::memory::frame_allocator::PageFrameAllocator;
+use crate::memory::map::MemoryMap;
+use crate::memory::paging::{PageTableRoot, VirtualAddr};
+use crate::memory::util::MemSize;
+use crate::memory::{init_mmu::init_mmu, FRAME_ALLOCATOR, PAGE_SZ};
 
 // Loads our entry point, _start, written entirely in assembly
 global_asm!(include_str!("start.S"));
@@ -35,7 +27,7 @@ macro_rules! kprint {
     ($($arg:tt)*) => {
         {
             use core::fmt::Write;
-            use crate::peripherals::UART;
+            use raspi_peripherals::UART;
             writeln!(UART.lock(), $($arg)*).unwrap();
         }
     };

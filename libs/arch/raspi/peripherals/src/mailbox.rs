@@ -2,7 +2,7 @@ use core::{hint, intrinsics::size_of};
 
 use bitfield::{Bit, BitRangeMut};
 
-use crate::peripherals::{
+use crate::{
     mmio::{mmio_read, mmio_write},
     MMIO,
 };

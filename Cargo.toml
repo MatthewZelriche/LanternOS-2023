@@ -3,4 +3,7 @@
 members = [
     "kernel",
     "bootloader/raspi",
+
+    "libs/arch/raspi/peripherals",
+    "libs/arch/raspi/concurrency",
 ]

@@ -79,7 +79,8 @@ dependencies = [
  "bitfield",
  "fdt-rs",
  "generic_once_cell",
- "lock_api",
+ "raspi-concurrency",
+ "raspi-peripherals",
  "tock-registers",
 ]
 
@@ -138,6 +139,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "50f3b39ccfb720540debaa0164757101c08ecb8d326b15358ce76a62c7e85965"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "raspi-concurrency"
+version = "0.1.0"
+dependencies = [
+ "lock_api",
+]
+
+[[package]]
+name = "raspi-peripherals"
+version = "0.1.0"
+dependencies = [
+ "bitfield",
+ "generic_once_cell",
+ "raspi-concurrency",
 ]
 
 [[package]]

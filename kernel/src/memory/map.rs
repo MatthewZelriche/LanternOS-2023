@@ -13,7 +13,7 @@ extern "C" {
     static __stack: u8;
 }
 
-use crate::peripherals::{mailbox::GetGpuMemory, mmio::Mmio, MAILBOX};
+use raspi_peripherals::{mailbox::GetGpuMemory, mmio::Mmio, MAILBOX};
 
 use super::{get_page_addr, util::MemSize, PAGE_SZ};
 

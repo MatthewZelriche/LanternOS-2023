@@ -1,6 +1,6 @@
 use generic_once_cell::OnceCell;
 
-use crate::concurrency::spinlock::{RawSpinlock, Spinlock};
+use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
 
 use self::frame_allocator::PageFrameAllocator;
 
