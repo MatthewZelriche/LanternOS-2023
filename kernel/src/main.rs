@@ -57,7 +57,25 @@ pub extern "C" fn main(dtb_ptr: *const u8) {
     kprint!("Setting up page frame allocator...");
     // This early init runs with 1 core and IRQ disabled, so we dont have to worry about get().unwrap() to
     // this frame allocator ever failing
-    FRAME_ALLOCATOR.get_or_init(|| Spinlock::new(PageFrameAllocator::new(&map)));
+    FRAME_ALLOCATOR.get_or_init(|| Spinlock::new(PageFrameAllocator::new()));
+
+    // Initialize all free pages in the map into the freelist
+    for entry in map.get_entries() {
+        match entry.entry_type {
+            memory::map::EntryType::Free => {
+                for addr in (entry.base_addr..entry.end_addr).step_by(PAGE_SZ as usize) {
+                    // If we fail to add a page to the free list, just silently ignore
+                    let _ = FRAME_ALLOCATOR
+                        .get()
+                        .unwrap()
+                        .lock()
+                        .free_page(addr as *mut u64);
+                }
+            }
+            _ => (),
+        }
+    }
+
     kprint!(
         "Initialized page frame allocator with {} free pages",
         FRAME_ALLOCATOR.get().unwrap().lock().num_free_pages()

@@ -10,26 +10,11 @@ struct Node<'a> {
 }
 
 impl PageFrameAllocator<'_> {
-    pub fn new(map: &MemoryMap) -> Self {
-        let mut allocator = PageFrameAllocator {
+    pub fn new() -> Self {
+        PageFrameAllocator {
             freelist: None,
             num_free: 0,
-        };
-
-        // Initialize all free pages in the map into the freelist
-        for entry in map.get_entries() {
-            match entry.entry_type {
-                super::map::EntryType::Free => {
-                    for addr in (entry.base_addr..entry.end_addr).step_by(PAGE_SZ as usize) {
-                        // If we fail to add a page to the free list, just silently ignore
-                        let _ = allocator.free_page(addr as *mut u64);
-                    }
-                }
-                _ => (),
-            }
         }
-
-        allocator
     }
 
     pub fn num_free_pages(&self) -> u64 {
