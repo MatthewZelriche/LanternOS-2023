@@ -33,6 +33,14 @@ macro_rules! kprint {
     };
 }
 
+extern "C" {
+    static __PG_SIZE: u8;
+}
+
+pub fn page_size() -> u64 {
+    unsafe { (&__PG_SIZE as *const u8) as u64 }
+}
+
 #[no_mangle]
 pub extern "C" fn main(dtb_ptr: *const u8) {
     kprint!("Booting kernel in privilage mode EL1...");

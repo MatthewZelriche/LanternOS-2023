@@ -6,6 +6,14 @@ use core::{arch::global_asm, panic::PanicInfo};
 // Loads our entry point, _start, written entirely in assembly
 global_asm!(include_str!("start.S"));
 
+extern "C" {
+    static __PG_SIZE: u8;
+}
+
+pub fn page_size() -> u64 {
+    unsafe { (&__PG_SIZE as *const u8) as u64 }
+}
+
 #[macro_export]
 macro_rules! println {
     ($($arg:tt)*) => {
