@@ -8,4 +8,5 @@ members = [
     "libs/arch/raspi/concurrency",
     "libs/arch/raspi/paging",
     "libs/page-frame-allocator",
+    "libs/elf-parse",
 ]
