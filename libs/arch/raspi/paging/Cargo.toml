@@ -1,0 +1,8 @@
+[package]
+name = "raspi-paging"
+version = "0.1.0"
+edition = "2021"
+crate-type = ["staticlib"]
+
+[dependencies]
+bitfield = "0.14.0"

@@ -1,78 +1,31 @@
-use core::{
-    mem::size_of,
-    slice::{from_raw_parts, from_raw_parts_mut},
-};
+#![no_std]
+#![feature(pointer_is_aligned)]
+use core::{mem::size_of, slice::from_raw_parts_mut};
 
 use bitfield::{bitfield, BitRange};
 
-use crate::{
-    kprint,
-    memory::{FRAME_ALLOCATOR, PAGE_SZ},
-};
+pub trait FrameAlloc {
+    fn alloc_frame(&mut self) -> *mut u8;
+}
 
 pub struct PageTableRoot<'a> {
     pub lvl0_table: &'a mut [Lvl0TableDescriptor],
+    page_size: u64,
 }
 
 impl PageTableRoot<'_> {
-    pub fn new() -> Self {
+    pub fn new<T: FrameAlloc>(page_size: u64, alloc: &mut T) -> Self {
         // Allocate a single page for the Level 0 table
-        let page = PageTableRoot::new_table_mem() as *mut Lvl0TableDescriptor;
+        let page = PageTableRoot::new_table_mem(page_size, alloc) as *mut Lvl0TableDescriptor;
         unsafe {
             PageTableRoot {
                 lvl0_table: from_raw_parts_mut(page, 512),
+                page_size,
             }
         }
     }
 
-    pub fn walk(&self, addr: VirtualAddr) {
-        kprint!("Walking Virtual Address: {:#x} - {:?}", addr.0, addr);
-
-        let lvl0_table = &self.lvl0_table;
-        let lvl0_descriptor = lvl0_table[addr.lvl0_idx() as usize];
-        if !lvl0_descriptor.valid() || !lvl0_descriptor.is_table() {
-            kprint!("Invalid Lvl0 Descriptor: {:?}", lvl0_descriptor);
-            return;
-        }
-        kprint!("Lvl0 Descriptor: {:?}", lvl0_descriptor);
-
-        let lvl1_table_ptr = (lvl0_descriptor.next_table_addr() << 12) as *mut Lvl1TableDescriptor;
-        let lvl1_table = unsafe { from_raw_parts(lvl1_table_ptr, 512) };
-        let lvl1_descriptor = lvl1_table[addr.lvl1_idx() as usize];
-        if !lvl1_descriptor.valid() {
-            kprint!("Invalid Lvl1 Descriptor: {:?}", lvl1_descriptor);
-            return;
-        } else if !lvl1_descriptor.is_table() {
-            todo!();
-        }
-        kprint!("Lvl1 Descriptor: {:?}", lvl1_descriptor);
-
-        let lvl2_table_ptr = (lvl1_descriptor.next_table_addr() << 12) as *mut Lvl2TableDescriptor;
-        let lvl2_table = unsafe { from_raw_parts(lvl2_table_ptr, 512) };
-        let lvl2_descriptor = lvl2_table[addr.lvl2_idx() as usize];
-        if !lvl2_descriptor.valid() {
-            kprint!("Invalid Lvl2 Descriptor: {:?}", lvl2_descriptor);
-            return;
-        } else if !lvl2_descriptor.is_table() {
-            todo!();
-        }
-        kprint!("Lvl2 descriptor: {:?}", lvl2_descriptor);
-
-        let page_table_ptr = (lvl2_descriptor.next_table_addr() << 12) as *mut PageDescriptor;
-        let page_table = unsafe { from_raw_parts(page_table_ptr, 512) };
-        let page_descriptor = page_table[addr.lvl3_idx() as usize];
-        if !page_descriptor.valid() || !page_descriptor.is_page() {
-            kprint!("Invalid Page Descriptor: {:?}", page_descriptor);
-            return;
-        }
-        kprint!("Page descriptor: {:?}", page_descriptor);
-        kprint!(
-            "Phys addr: {:#x}",
-            (page_descriptor.output_addr() << 12) | addr.phys_offset()
-        );
-    }
-
-    pub fn map_1gib_page(&mut self, phys: u64) -> Result<(), ()> {
+    pub fn map_1gib_page<T: FrameAlloc>(&mut self, phys: u64, alloc: &mut T) -> Result<(), ()> {
         assert!((phys as *mut u64).is_aligned_to(0x40000000));
 
         let virt_addr = VirtualAddr(phys);
@@ -82,7 +35,7 @@ impl PageTableRoot<'_> {
         if !lvl0_descriptor.valid() {
             // We need to allocate a Lvl1 table to store in this descriptor, then we need
             // to initialize this descriptor
-            let table_addr = PageTableRoot::new_table_mem() as u64;
+            let table_addr = PageTableRoot::new_table_mem(self.page_size, alloc) as u64;
             lvl0_descriptor.set_valid(true);
             lvl0_descriptor.set_is_table(true);
             lvl0_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -108,7 +61,12 @@ impl PageTableRoot<'_> {
         }
     }
 
-    pub fn map_2mib_page(&mut self, phys: u64, virt_addr: VirtualAddr) -> Result<(), ()> {
+    pub fn map_2mib_page<T: FrameAlloc>(
+        &mut self,
+        phys: u64,
+        virt_addr: VirtualAddr,
+        alloc: &mut T,
+    ) -> Result<(), ()> {
         assert!((virt_addr.0 as *mut u64).is_aligned_to(0x200000));
 
         let lvl0_table = &mut self.lvl0_table;
@@ -116,7 +74,7 @@ impl PageTableRoot<'_> {
         if !lvl0_descriptor.valid() {
             // We need to allocate a Lvl1 table to store in this descriptor, then we need
             // to initialize this descriptor
-            let table_addr = PageTableRoot::new_table_mem() as u64;
+            let table_addr = PageTableRoot::new_table_mem(self.page_size, alloc) as u64;
             lvl0_descriptor.set_valid(true);
             lvl0_descriptor.set_is_table(true);
             lvl0_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -130,7 +88,7 @@ impl PageTableRoot<'_> {
         let mut lvl1_descriptor = lvl1_table[virt_addr.lvl1_idx() as usize];
         if !lvl1_descriptor.valid() {
             // We need to allocate a new Lvl2 table to store in this descriptor
-            let table_addr = PageTableRoot::new_table_mem() as u64;
+            let table_addr = PageTableRoot::new_table_mem(self.page_size, alloc) as u64;
             lvl1_descriptor.set_valid(true);
             lvl1_descriptor.set_is_table(true);
             lvl1_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -157,7 +115,7 @@ impl PageTableRoot<'_> {
     }
 
     // Identity Map a single page for 4kib granularity
-    pub fn map_page(&mut self, phys: u64) -> Result<(), ()> {
+    pub fn map_page<T: FrameAlloc>(&mut self, phys: u64, alloc: &mut T) -> Result<(), ()> {
         assert!((phys as *mut u64).is_aligned_to(0x1000));
 
         let virt_addr = VirtualAddr(phys);
@@ -167,7 +125,7 @@ impl PageTableRoot<'_> {
         if !lvl0_descriptor.valid() {
             // We need to allocate a Lvl1 table to store in this descriptor, then we need
             // to initialize this descriptor
-            let table_addr = PageTableRoot::new_table_mem() as u64;
+            let table_addr = PageTableRoot::new_table_mem(self.page_size, alloc) as u64;
             lvl0_descriptor.set_valid(true);
             lvl0_descriptor.set_is_table(true);
             lvl0_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -181,7 +139,7 @@ impl PageTableRoot<'_> {
         let mut lvl1_descriptor = lvl1_table[virt_addr.lvl1_idx() as usize];
         if !lvl1_descriptor.valid() {
             // We need to allocate a new Lvl2 table to store in this descriptor
-            let table_addr = PageTableRoot::new_table_mem() as u64;
+            let table_addr = PageTableRoot::new_table_mem(self.page_size, alloc) as u64;
             lvl1_descriptor.set_valid(true);
             lvl1_descriptor.set_is_table(true);
             lvl1_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -195,7 +153,7 @@ impl PageTableRoot<'_> {
         let mut lvl2_descriptor = lvl2_table[virt_addr.lvl2_idx() as usize];
         if !lvl2_descriptor.valid() {
             // We need to allocate a new Lvl3 table to store in this descriptor
-            let table_addr = PageTableRoot::new_table_mem() as u64;
+            let table_addr = PageTableRoot::new_table_mem(self.page_size, alloc) as u64;
             lvl2_descriptor.set_valid(true);
             lvl2_descriptor.set_is_table(true);
             lvl2_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -219,10 +177,11 @@ impl PageTableRoot<'_> {
         Ok(())
     }
 
-    fn new_table_mem() -> *mut u64 {
-        let addr = FRAME_ALLOCATOR.get().unwrap().lock().alloc_page();
+    fn new_table_mem<T: FrameAlloc>(sz: u64, allocator: &mut T) -> *mut u64 {
+        //let addr = FRAME_ALLOCATOR.lock().alloc_page();
+        let addr = allocator.alloc_frame();
         unsafe {
-            core::ptr::write_bytes(addr, 0, (PAGE_SZ as usize) / size_of::<u64>());
+            core::ptr::write_bytes(addr, 0, (sz as usize) / size_of::<u64>());
         }
         addr as *mut u64
     }

@@ -6,5 +6,6 @@ members = [
 
     "libs/arch/raspi/peripherals",
     "libs/arch/raspi/concurrency",
+    "libs/arch/raspi/paging",
     "libs/page-frame-allocator",
 ]

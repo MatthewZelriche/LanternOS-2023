@@ -38,6 +38,7 @@ dependencies = [
  "generic_once_cell",
  "page-frame-allocator",
  "raspi-concurrency",
+ "raspi-paging",
  "raspi-peripherals",
 ]
 
@@ -84,9 +85,7 @@ version = "0.1.0"
 dependencies = [
  "aarch64-cpu",
  "arrayvec",
- "bitfield",
  "fdt-rs",
- "generic_once_cell",
  "page-frame-allocator",
  "raspi-concurrency",
  "raspi-peripherals",
@@ -159,6 +158,13 @@ name = "raspi-concurrency"
 version = "0.1.0"
 dependencies = [
  "lock_api",
+]
+
+[[package]]
+name = "raspi-paging"
+version = "0.1.0"
+dependencies = [
+ "bitfield",
 ]
 
 [[package]]
