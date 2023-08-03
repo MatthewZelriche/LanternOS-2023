@@ -38,6 +38,48 @@ pub struct Elf64EHdr {
     pub sh_num: u16,
     pub sh_strndx: u16,
 }
+
+#[repr(C)]
+pub struct Elf64SHdr {
+    pub name: u32,
+    pub section_type: u32,
+    pub flags: u64,
+    pub addr: u64,
+    pub offset: u64,
+    pub size: u64,
+    pub link: u32,
+    pub info: u32,
+    pub addr_align: u64,
+    pub entsize: u64,
+}
+
+pub struct SectionHeaderIter<'a> {
+    section_table: &'a [u8],
+    entsize: u64,
+    len: u16,
+    idx: u64,
+}
+
+impl Iterator for SectionHeaderIter<'_> {
+    type Item = Elf64SHdr;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let shdr_start = (self.idx * self.entsize) as usize;
+        let shdr_end_exclusive = ((self.idx + 1) * self.entsize) as usize;
+
+        let res = if self.idx >= self.len.into() {
+            None
+        } else {
+            unsafe {
+                Some(ptr::read(
+                    self.section_table[shdr_start..shdr_end_exclusive].as_ptr() as *const Elf64SHdr,
+                ))
+            }
+        };
+
+        self.idx += 1;
+        res
+    }
 }
 
 #[derive(Debug)]
@@ -79,7 +121,17 @@ impl<'b: 'a, 'a> ElfFile<'b> {
         self.hdr.ident[0] == 0x7f && self.hdr.ident[1..4].eq(b"ELF")
     }
 
-    pub fn get_architecture(&self) -> MachineType {
-        self.hdr.machine
+    pub fn section_headers(&self) -> Option<SectionHeaderIter> {
+        let table_size =
+            (self.hdr.sh_off + (self.hdr.sh_num * self.hdr.sh_entsize) as u64) as usize;
+        match self.hdr.sh_off {
+            0 => None,
+            off => Some(SectionHeaderIter {
+                section_table: &self.bytes[off as usize..table_size],
+                entsize: self.hdr.sh_entsize.into(),
+                len: self.hdr.sh_num,
+                idx: 0,
+            }),
+        }
     }
 }
