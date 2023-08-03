@@ -48,21 +48,20 @@ pub enum Error {
     ParseError,
 }
 
-pub struct ElfFile {
-    pub entry: Option<u64>,
-
-    hdr: Elf64EHdr,
+pub struct ElfFile<'a> {
+    bytes: &'a [u8],
+    pub hdr: Elf64EHdr,
 }
 
-impl ElfFile {
-    pub fn new(bytes: &[u8]) -> Result<Self, Error> {
+impl<'b: 'a, 'a> ElfFile<'b> {
+    pub fn new(bytes: &'b [u8]) -> Result<Self, Error> {
         let hdr_size = size_of::<Elf64EHdr>();
         if bytes.len() < hdr_size {
             return Err(Error::SizeTooSmall);
         }
 
-        let mut file = ElfFile {
-            entry: None,
+        let file = ElfFile::<'b> {
+            bytes,
             hdr: unsafe { ptr::read((&bytes[0..hdr_size]).as_ptr() as *const Elf64EHdr) },
         };
 
@@ -72,11 +71,6 @@ impl ElfFile {
         if file.hdr.file_type != ElfType::EXEC {
             return Err(Error::UnsupportedFile);
         }
-
-        file.entry = match file.hdr.entry {
-            0 => None,
-            addr => Some(addr),
-        };
 
         Ok(file)
     }
