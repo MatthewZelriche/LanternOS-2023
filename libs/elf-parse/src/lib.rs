@@ -5,7 +5,7 @@ use core::{mem::size_of, ptr};
 const IDENT_SZ: usize = 16;
 
 #[derive(PartialEq, Clone, Copy)]
-struct ElfType(u16);
+pub struct ElfType(u16);
 impl ElfType {
     const NONE: ElfType = ElfType(0);
     const REL: ElfType = ElfType(1);
@@ -22,21 +22,22 @@ impl MachineType {
 }
 
 #[repr(C)]
-struct Elf64EHdr {
-    ident: [u8; IDENT_SZ],
-    file_type: ElfType,
-    machine: MachineType,
-    version: u32,
-    entry: u64,
-    ph_off: u64,
-    sh_off: u64,
-    flags: u32,
-    eh_size: u16,
-    ph_entsize: u16,
-    ph_num: u16,
-    sh_entsize: u16,
-    sh_num: u16,
-    sh_strndx: u16,
+pub struct Elf64EHdr {
+    pub ident: [u8; IDENT_SZ],
+    pub file_type: ElfType,
+    pub machine: MachineType,
+    pub version: u32,
+    pub entry: u64,
+    pub ph_off: u64,
+    pub sh_off: u64,
+    pub flags: u32,
+    pub eh_size: u16,
+    pub ph_entsize: u16,
+    pub ph_num: u16,
+    pub sh_entsize: u16,
+    pub sh_num: u16,
+    pub sh_strndx: u16,
+}
 }
 
 #[derive(Debug)]

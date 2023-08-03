@@ -86,7 +86,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) {
 
     println!("Begin parsing kernel ELF...");
     let kernel_elf = ElfFile::new(KERNEL).expect("Failed to parse kernel ELF");
-    if kernel_elf.get_architecture() != MachineType::AARCH64 {
+    if kernel_elf.hdr.machine != MachineType::AARCH64 {
         panic!("Kernel ELF file is using the wrong architecture!");
     }
     println!("Successfully parsed kernel ELF");
