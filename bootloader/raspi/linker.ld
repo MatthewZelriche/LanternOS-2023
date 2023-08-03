@@ -28,6 +28,5 @@ SECTIONS
         *(.bss)
       __bss_end = .;
     }
-    __kernel_end = .;
     __bss_size = __bss_end - __bss_start;
 }
