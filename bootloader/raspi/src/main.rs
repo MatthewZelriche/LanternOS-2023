@@ -8,7 +8,7 @@ mod memory_map;
 use core::{arch::global_asm, panic::PanicInfo};
 
 use align_data::include_aligned;
-use elf_parse::ElfFile;
+use elf_parse::{ElfFile, MachineType};
 use generic_once_cell::Lazy;
 use page_frame_allocator::PageFrameAllocator;
 use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
@@ -85,7 +85,11 @@ pub extern "C" fn main(dtb_ptr: *const u8) {
     );
 
     println!("Begin parsing kernel ELF...");
-    ElfFile::new(KERNEL).expect("Failed to parse kernel ELF");
+    let kernel_elf = ElfFile::new(KERNEL).expect("Failed to parse kernel ELF");
+    if kernel_elf.get_architecture() != MachineType::AARCH64 {
+        panic!("Kernel ELF file is using the wrong architecture!");
+    }
+    println!("Successfully parsed kernel ELF");
 
     panic!("Failed to load kernel!");
 }
