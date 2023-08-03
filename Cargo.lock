@@ -35,6 +35,8 @@ version = "0.1.0"
 dependencies = [
  "arrayvec",
  "fdt-rs",
+ "generic_once_cell",
+ "page-frame-allocator",
  "raspi-concurrency",
  "raspi-peripherals",
 ]

@@ -7,6 +7,10 @@ mod memory_map;
 
 use core::{arch::global_asm, panic::PanicInfo};
 
+use generic_once_cell::Lazy;
+use page_frame_allocator::PageFrameAllocator;
+use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
+
 use crate::{mem_size::MemSize, memory_map::MemoryMap};
 
 // Loads our entry point, _start, written entirely in assembly
@@ -30,6 +34,9 @@ macro_rules! println {
     };
 }
 
+pub static FRAME_ALLOCATOR: Lazy<RawSpinlock, Spinlock<PageFrameAllocator>> =
+    Lazy::new(|| Spinlock::new(PageFrameAllocator::new(page_size())));
+
 #[no_mangle]
 pub extern "C" fn main(dtb_ptr: *const u8) {
     println!("Raspi bootloader is preparing environment for kernel...");
@@ -51,6 +58,24 @@ pub extern "C" fn main(dtb_ptr: *const u8) {
     println!("Avail Memory:    {}", map.get_free_mem());
     println!("");
     println!("{}", map);
+
+    println!("Setting up page frame allocator...");
+    // Initialize all free pages in the map into the freelist
+    for entry in map.get_entries() {
+        match entry.entry_type {
+            memory_map::EntryType::Free => {
+                for addr in (entry.base_addr..entry.end_addr).step_by(page_size() as usize) {
+                    // If we fail to add a page to the free list, just silently ignore
+                    let _ = FRAME_ALLOCATOR.lock().free_page(addr as *mut u64);
+                }
+            }
+            _ => (),
+        }
+    }
+    println!(
+        "Initialized page frame allocator with {} free pages",
+        FRAME_ALLOCATOR.lock().num_free_pages()
+    );
 
     panic!("Failed to load kernel!");
 }

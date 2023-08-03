@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 raspi-concurrency = { path = "../../libs/arch/raspi/concurrency" }
 raspi-peripherals = { path = "../../libs/arch/raspi/peripherals" }
+page-frame-allocator = { path = "../../libs/page-frame-allocator" }
+generic_once_cell = "0.1.1"
 
 [dependencies.fdt-rs]
 version = "0.4.3"
