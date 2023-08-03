@@ -9,13 +9,16 @@ use fdt_rs::{
 
 extern "C" {
     static __stack_end: u8;
-    static __kernel_end: u8;
+    static __bootloader_end: u8;
     static __stack: u8;
 }
 
+use crate::{mem_size::MemSize, page_size};
 use raspi_peripherals::{mailbox::GetGpuMemory, mmio::Mmio, MAILBOX};
 
-use super::{get_page_addr, util::MemSize, PAGE_SZ};
+pub fn get_page_addr(addr: u64) -> u64 {
+    addr & !(page_size() - 1)
+}
 
 #[derive(Default, Clone, Copy)]
 pub enum EntryType {
@@ -23,7 +26,7 @@ pub enum EntryType {
     Free,
     DtReserved,
     Firmware,
-    Kernel,
+    Bootloader,
     Mmio,
 }
 
@@ -33,7 +36,7 @@ impl EntryType {
             EntryType::Free => "Free",
             EntryType::DtReserved => "DeviceTree",
             EntryType::Firmware => "Firmware",
-            EntryType::Kernel => "Kernel",
+            EntryType::Bootloader => "Bootloader",
             EntryType::Mmio => "MMIO",
         }
     }
@@ -200,7 +203,7 @@ impl MemoryMap {
 
         // Find and reserve pages for the DTB
         let dtb_page_start = get_page_addr(dtb_ptr as u64);
-        let dtb_page_end = (dtb_page_start + dtb.totalsize() as u64).next_multiple_of(PAGE_SZ);
+        let dtb_page_end = (dtb_page_start + dtb.totalsize() as u64).next_multiple_of(page_size());
         let dtb_size_bytes = dtb_page_end - dtb_page_start;
         map.add_entry(MemoryMapEntry {
             base_addr: dtb_page_start,
@@ -237,20 +240,20 @@ impl MemoryMap {
         })?;
 
         // Reserve the kernel region
-        let kern_start;
-        let kern_end;
+        let bl_start;
+        let bl_end;
         unsafe {
-            kern_start = (&__stack_end as *const u8) as u64;
-            kern_end = &__kernel_end as *const u8 as u64;
+            bl_start = (&__stack_end as *const u8) as u64;
+            bl_end = &__bootloader_end as *const u8 as u64;
         }
-        let kernel_start_page_addr = get_page_addr(kern_start);
-        let kernel_end_page_addr = kern_end.next_multiple_of(PAGE_SZ);
+        let kernel_start_page_addr = get_page_addr(bl_start);
+        let kernel_end_page_addr = bl_end.next_multiple_of(page_size());
         let kernel_size = kernel_end_page_addr - kernel_start_page_addr;
         map.add_entry(MemoryMapEntry {
             base_addr: kernel_start_page_addr,
             size: MemSize { bytes: kernel_size },
             end_addr: kernel_end_page_addr,
-            entry_type: EntryType::Kernel,
+            entry_type: EntryType::Bootloader,
         })?;
 
         // Sort the map from 0 to max addr

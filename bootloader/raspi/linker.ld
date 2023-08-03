@@ -30,5 +30,6 @@ SECTIONS
         *(.bss)
       __bss_end = .;
     }
+    __bootloader_end = .;
     __bss_size = __bss_end - __bss_start;
 }
