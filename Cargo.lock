@@ -12,6 +12,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "align-data"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1926655ba000b19e21f0402be09a1d52d318c8a8a68622870bfb7af2a71315cd"
+
+[[package]]
 name = "arrayvec"
 version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -33,7 +39,9 @@ checksum = "2d7e60934ceec538daadb9d8432424ed043a904d8e0243f3c6446bce549a46ac"
 name = "bootloader-raspi"
 version = "0.1.0"
 dependencies = [
+ "align-data",
  "arrayvec",
+ "elf-parse",
  "fdt-rs",
  "generic_once_cell",
  "page-frame-allocator",

@@ -8,7 +8,9 @@ raspi-concurrency = { path = "../../libs/arch/raspi/concurrency" }
 raspi-peripherals = { path = "../../libs/arch/raspi/peripherals" }
 raspi-paging = { path = "../../libs/arch/raspi/paging" }
 page-frame-allocator = { path = "../../libs/page-frame-allocator" }
+elf-parse = { path = "../../libs/elf-parse" }
 generic_once_cell = "0.1.1"
+align-data = "0.1.0"
 
 [dependencies.fdt-rs]
 version = "0.4.3"
