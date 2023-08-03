@@ -1,8 +1,9 @@
-use super::{map::MemoryMap, PAGE_SZ};
+#![no_std]
 
 pub struct PageFrameAllocator<'a> {
     freelist: Option<&'a Node<'a>>,
     num_free: u64,
+    page_size: u64,
 }
 
 struct Node<'a> {
@@ -10,10 +11,11 @@ struct Node<'a> {
 }
 
 impl PageFrameAllocator<'_> {
-    pub fn new() -> Self {
+    pub fn new(page_size: u64) -> Self {
         PageFrameAllocator {
             freelist: None,
             num_free: 0,
+            page_size,
         }
     }
 
@@ -24,7 +26,7 @@ impl PageFrameAllocator<'_> {
     pub fn free_page(&mut self, frame_addr: *mut u64) -> Result<(), ()> {
         // Can't use null address (0x0) as a valid page, even though ARM bare metal would
         // allow us to do so.
-        assert!(frame_addr as u64 % PAGE_SZ == 0);
+        assert!(frame_addr as u64 % self.page_size == 0);
         if frame_addr.is_null() {
             return Err(());
         }

@@ -83,6 +83,7 @@ dependencies = [
  "bitfield",
  "fdt-rs",
  "generic_once_cell",
+ "page-frame-allocator",
  "raspi-concurrency",
  "raspi-peripherals",
  "tock-registers",
@@ -126,6 +127,10 @@ checksum = "f30b0abd723be7e2ffca1272140fac1a2f084c77ec3e123c192b66af1ee9e6c2"
 dependencies = [
  "autocfg",
 ]
+
+[[package]]
+name = "page-frame-allocator"
+version = "0.1.0"
 
 [[package]]
 name = "proc-macro2"
