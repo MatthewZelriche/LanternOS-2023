@@ -1,3 +1,5 @@
+INCLUDE common.ld
+
 SECTIONS
 {
     . = 0x6E000; /* 12kib kernel stack */
