@@ -7,11 +7,18 @@ mod memory_map;
 
 use core::{arch::global_asm, panic::PanicInfo};
 
+use align_data::include_aligned;
+use elf_parse::ElfFile;
 use generic_once_cell::Lazy;
 use page_frame_allocator::PageFrameAllocator;
 use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
 
 use crate::{mem_size::MemSize, memory_map::MemoryMap};
+
+// TODO: Find a way to handle automatically setting this to page size
+#[repr(align(0x1000))]
+struct AlignPage;
+static KERNEL: &[u8] = include_aligned!(AlignPage, "../../../out/lantern-os.elf");
 
 // Loads our entry point, _start, written entirely in assembly
 global_asm!(include_str!("start.S"));
@@ -76,6 +83,9 @@ pub extern "C" fn main(dtb_ptr: *const u8) {
         "Initialized page frame allocator with {} free pages",
         FRAME_ALLOCATOR.lock().num_free_pages()
     );
+
+    println!("Begin parsing kernel ELF...");
+    ElfFile::new(KERNEL).expect("Failed to parse kernel ELF");
 
     panic!("Failed to load kernel!");
 }
