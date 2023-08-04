@@ -20,7 +20,7 @@ use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
 
 use crate::{
     mem_size::MemSize,
-    memory_map::{MemoryMap, MemoryMapEntry},
+    memory_map::{EntryType, MemoryMap, MemoryMapEntry},
 };
 
 // TODO: Find a way to handle automatically setting this to page size
@@ -84,6 +84,22 @@ pub extern "C" fn main(dtb_ptr: *const u8) {
     println!("");
     println!("{}", map);
 
+    println!("Initializing page frame allocator...");
+    for entry in map.get_entries() {
+        match entry.entry_type {
+            EntryType::Free => {
+                for addr in (entry.base_addr..entry.end_addr).step_by(page_size() as usize) {
+                    // If we fail to add a page to the free list, just silently ignore
+                    let _ = FRAME_ALLOCATOR.lock().free_page(addr as *mut u64);
+                }
+            }
+            _ => (),
+        }
+    }
+    println!(
+        "Successfully initialized page frame allocator with {} free pages.",
+        FRAME_ALLOCATOR.lock().num_free_pages()
+    );
     // Transfer control to the kernel
     println!("Transferring control to kernel entry point...");
     println!("");
