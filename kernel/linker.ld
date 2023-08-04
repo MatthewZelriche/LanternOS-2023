@@ -4,7 +4,7 @@ ENTRY (main)
 
 SECTIONS
 {
-    . = 0x50000000;
+    . = 0x0;
     __kernel_start = .;
     .text :
     {

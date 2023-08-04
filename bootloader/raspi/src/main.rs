@@ -18,7 +18,10 @@ use generic_once_cell::Lazy;
 use page_frame_allocator::PageFrameAllocator;
 use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
 
-use crate::{mem_size::MemSize, memory_map::MemoryMap};
+use crate::{
+    mem_size::MemSize,
+    memory_map::{MemoryMap, MemoryMapEntry},
+};
 
 // TODO: Find a way to handle automatically setting this to page size
 #[repr(align(0x1000))]
@@ -52,11 +55,21 @@ pub static FRAME_ALLOCATOR: Lazy<RawSpinlock, Spinlock<PageFrameAllocator>> =
 #[no_mangle]
 pub extern "C" fn main(dtb_ptr: *const u8) {
     println!("Raspi bootloader is preparing environment for kernel...");
-    println!("");
 
     // Load the dtb
     // Panic if we can't load it, for now
-    let map = MemoryMap::new(dtb_ptr).expect("Failed to construct memory map");
+    let mut map = MemoryMap::new(dtb_ptr).expect("Failed to construct memory map");
+
+    let kernel_elf = ElfFile::new(KERNEL).expect("Failed to parse kernel ELF");
+    if kernel_elf.hdr.machine != MachineType::AARCH64 {
+        panic!("Kernel ELF file is using the wrong architecture!");
+    }
+    println!("Successfully parsed kernel ELF");
+
+    load_elf(&kernel_elf, &mut map);
+    println!("Loaded Kernel ELF into memory");
+
+    println!("");
     println!("Page size:       {}", MemSize { bytes: page_size() });
     println!(
         "Reserved Pages:  {}",
@@ -71,14 +84,44 @@ pub extern "C" fn main(dtb_ptr: *const u8) {
     println!("");
     println!("{}", map);
 
-    let kernel_elf = ElfFile::new(KERNEL).expect("Failed to parse kernel ELF");
-    if kernel_elf.hdr.machine != MachineType::AARCH64 {
-        panic!("Kernel ELF file is using the wrong architecture!");
-    }
-    println!("Successfully parsed kernel ELF");
+    // Transfer control to the kernel
+    println!("Transferring control to kernel entry point...");
+    println!("");
+    type EntryPoint = extern "C" fn() -> !;
+    let fn_void_ptr = kernel_elf.hdr.entry as *const ();
+    let entry_point: EntryPoint = unsafe { transmute(fn_void_ptr) };
+    entry_point();
 
+
+
+fn load_elf(kernel_elf: &ElfFile, map: &mut MemoryMap) {
+    // TODO: Less hacky way of loading
     // Copy kernel into memory
     // TODO: Add this to memory map
+    let mut kernel_memsz: u64 = 0;
+    for program in kernel_elf
+        .program_headers()
+        .expect("Kernel ELF has no program segments")
+    {
+        if program.program_type == 1 {
+            kernel_memsz += program.memsz;
+        }
+    }
+    kernel_memsz = kernel_memsz.next_multiple_of(page_size());
+    // Find a contiguous region in physical memory to store the segment
+    let region = map
+        .get_entries()
+        .iter()
+        .find(|x| x.size.bytes >= kernel_memsz)
+        .expect("Failed to find available memory for kernel")
+        .clone();
+    let base_addr = kernel_elf
+        .program_headers()
+        .unwrap()
+        .next()
+        .unwrap()
+        .virt_addr;
+
     for program in kernel_elf
         .program_headers()
         .expect("Kernel ELF has no program segments")
@@ -91,8 +134,18 @@ pub extern "C" fn main(dtb_ptr: *const u8) {
                     program.filesz as usize,
                 )
             };
-            let mem_segment =
-                unsafe { from_raw_parts_mut(program.virt_addr as *mut u8, program.memsz as usize) };
+
+            // TODO: This is currently hardcoded because we know in QEMU
+            // (at this point) we can rely on the kernel getting loaded at
+            // address 0, which is what we've linked the kernel to. Once we enable the MMU,
+            // this link position needs to change and we will need to remap the kernel.
+            let mem_offset = program.virt_addr - base_addr;
+            let mem_segment = unsafe {
+                from_raw_parts_mut(
+                    (region.base_addr + mem_offset) as *mut u8,
+                    program.memsz as usize,
+                )
+            };
 
             (&mut mem_segment[0..program.filesz as usize]).copy_from_slice(file_segment);
 
@@ -101,19 +154,17 @@ pub extern "C" fn main(dtb_ptr: *const u8) {
             }
         }
     }
-    println!("Loaded Kernel ELF into memory");
 
-    // Transfer control to the kernel
-    println!("Transferring control to kernel entry point...");
-    println!("");
-    type EntryPoint = extern "C" fn() -> !;
-    let fn_void_ptr = kernel_elf.hdr.entry as *const ();
-    let entry_point: EntryPoint = unsafe { transmute(fn_void_ptr) };
-    entry_point();
-    }
-    println!("Successfully parsed kernel ELF");
-
-    panic!("Failed to load kernel!");
+    // Add this kernel region to the memory map
+    map.add_entry(MemoryMapEntry {
+        base_addr: region.base_addr,
+        size: MemSize {
+            bytes: kernel_memsz,
+        },
+        end_addr: region.base_addr + kernel_memsz,
+        entry_type: memory_map::EntryType::Kernel,
+    })
+    .expect("Failed to install kernel data into memory map");
 }
 
 #[panic_handler]

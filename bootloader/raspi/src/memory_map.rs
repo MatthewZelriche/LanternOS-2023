@@ -278,10 +278,6 @@ impl MemoryMap {
             entry_type: EntryType::Bootloader,
         })?;
 
-        // Sort the map from 0 to max addr
-        map.entries
-            .sort_unstable_by(|a, b| a.base_addr.cmp(&b.base_addr));
-
         map.addr_end = max_addr;
         if map.addr_end == 0 {
             Err(DevTreeError::ParseError)
@@ -312,7 +308,7 @@ impl MemoryMap {
         }
     }
 
-    fn add_entry(&mut self, entry: MemoryMapEntry) -> Result<(), DevTreeError> {
+    pub fn add_entry(&mut self, entry: MemoryMapEntry) -> Result<(), DevTreeError> {
         // Remove free entries if they are completely consumed by a reserved entry
         self.entries.retain(|x| !entry.fully_contains(x));
 
@@ -330,8 +326,15 @@ impl MemoryMap {
             .map_err(|_| DevTreeError::NotEnoughMemory)?;
 
         // Add the reserved entry and return
-        self.entries
+        let res = self
+            .entries
             .try_push(entry)
-            .map_err(|_| DevTreeError::NotEnoughMemory)
+            .map_err(|_| DevTreeError::NotEnoughMemory);
+
+        // Sort the map from 0 to max addr
+        self.entries
+            .sort_unstable_by(|a, b| a.base_addr.cmp(&b.base_addr));
+
+        res
     }
 }
