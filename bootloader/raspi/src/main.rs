@@ -68,12 +68,23 @@ pub static FRAME_ALLOCATOR: Lazy<RawSpinlock, Spinlock<PageFrameAllocatorNewtype
     });
 
 #[no_mangle]
-pub extern "C" fn main(dtb_ptr: *const u8) {
+pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     println!("Raspi bootloader is preparing environment for kernel...");
 
     // Load the dtb
     // Panic if we can't load it, for now
     let mut map = MemoryMap::new(dtb_ptr).expect("Failed to construct memory map");
+
+    // TODO: Not sure why this is necessary...but if I don't reserve the very first page of memory,
+    // attempting to write to that region causes cpu faults.
+    // Something to do with QEMU? Or the exception vector?
+    map.add_entry(MemoryMapEntry {
+        base_addr: 0,
+        size: MemSize { bytes: 0x1000 },
+        end_addr: 0x1000,
+        entry_type: EntryType::Firmware,
+    })
+    .unwrap();
 
     let kernel_elf = ElfFile::new(KERNEL).expect("Failed to parse kernel ELF");
     if kernel_elf.hdr.machine != MachineType::AARCH64 {
@@ -119,6 +130,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) {
     println!("Enabling MMU...");
     let mut page_table: PageTableRoot;
     {
+        // Identity map all of physical memory as 1GiB huge pages
         page_table = PageTableRoot::new(page_size(), FRAME_ALLOCATOR.lock().deref_mut());
         let max_addr = map.get_total_mem().to_bytes();
         for page in (0..max_addr).step_by(0x40000000) {
@@ -126,13 +138,38 @@ pub extern "C" fn main(dtb_ptr: *const u8) {
                 .map_1gib_page(page, FRAME_ALLOCATOR.lock().deref_mut())
                 .expect("Failed to Identity map full physical memory");
         }
+
+        // Virtually map kernel memory to 64GiB with 4KiB pages
+        let kernel_region = map
+            .get_entries()
+            .iter()
+            .find(|x| x.entry_type == EntryType::Kernel)
+            .expect("Failed to find kernel in memory");
+
+        let mut offset = 0;
+        for phys_page in
+            (kernel_region.base_addr..kernel_region.end_addr).step_by(page_size() as usize)
+        {
+            // TODO: Dehardcode
+            page_table
+                .map_page(
+                    phys_page,
+                    raspi_paging::VirtualAddr(0x1000000000 + offset),
+                    FRAME_ALLOCATOR.lock().deref_mut(),
+                )
+                .expect("Failed to virtually map kernel");
+            offset += page_size();
+        }
     }
 
     init_mmu(&page_table);
     println!("Successfully enabled the MMU");
 
     // Transfer control to the kernel
-    println!("Transferring control to kernel entry point...");
+    println!(
+        "Transferring control to kernel entry point {:#x}",
+        kernel_elf.hdr.entry
+    );
     println!("");
     type EntryPoint = extern "C" fn() -> !;
     let fn_void_ptr = kernel_elf.hdr.entry as *const ();
@@ -158,7 +195,7 @@ fn load_elf(kernel_elf: &ElfFile, map: &mut MemoryMap) {
     let region = map
         .get_entries()
         .iter()
-        .find(|x| x.size.bytes >= kernel_memsz)
+        .find(|x| x.size.bytes >= kernel_memsz && x.entry_type == EntryType::Free)
         .expect("Failed to find available memory for kernel")
         .clone();
     let base_addr = kernel_elf

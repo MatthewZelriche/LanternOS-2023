@@ -21,7 +21,7 @@ pub fn get_page_addr(addr: u64) -> u64 {
     addr & !(page_size() - 1)
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, PartialEq)]
 pub enum EntryType {
     #[default]
     Free,

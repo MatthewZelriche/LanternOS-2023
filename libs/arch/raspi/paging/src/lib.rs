@@ -115,10 +115,13 @@ impl PageTableRoot<'_> {
     }
 
     // Identity Map a single page for 4kib granularity
-    pub fn map_page<T: FrameAlloc>(&mut self, phys: u64, alloc: &mut T) -> Result<(), ()> {
+    pub fn map_page<T: FrameAlloc>(
+        &mut self,
+        phys: u64,
+        virt_addr: VirtualAddr,
+        alloc: &mut T,
+    ) -> Result<(), ()> {
         assert!((phys as *mut u64).is_aligned_to(0x1000));
-
-        let virt_addr = VirtualAddr(phys);
 
         let lvl0_table = &mut self.lvl0_table;
         let mut lvl0_descriptor = lvl0_table[virt_addr.lvl0_idx() as usize];
