@@ -9,6 +9,7 @@ use fdt_rs::{
 
 extern "C" {
     static __stack_end: u8;
+    static __bootloader_start: u8;
     static __bootloader_end: u8;
     static __stack: u8;
 }
@@ -27,6 +28,8 @@ pub enum EntryType {
     DtReserved,
     Firmware,
     Bootloader,
+    Stack,
+    Kernel,
     Mmio,
 }
 
@@ -38,6 +41,8 @@ impl EntryType {
             EntryType::Firmware => "Firmware",
             EntryType::Bootloader => "Bootloader",
             EntryType::Mmio => "MMIO",
+            EntryType::Stack => "Stack",
+            EntryType::Kernel => "Kernel",
         }
     }
 }
@@ -239,20 +244,37 @@ impl MemoryMap {
             entry_type: EntryType::Mmio,
         })?;
 
-        // Reserve the kernel region
+        // Reserve the stack region
+        let stack_start;
+        let stack_end;
+        unsafe {
+            stack_start = (&__stack_end as *const u8) as u64;
+            stack_end = (&__stack as *const u8) as u64;
+        }
+        let stack_start_page_addr = get_page_addr(stack_start);
+        let stack_end_page_addr = get_page_addr(stack_end); // Stack end is exclusive
+        let stack_size = stack_end_page_addr - stack_start_page_addr;
+        map.add_entry(MemoryMapEntry {
+            base_addr: stack_start_page_addr,
+            size: MemSize { bytes: stack_size },
+            end_addr: stack_end_page_addr,
+            entry_type: EntryType::Stack,
+        })?;
+
+        // Reserve the bootloader region
         let bl_start;
         let bl_end;
         unsafe {
-            bl_start = (&__stack_end as *const u8) as u64;
+            bl_start = (&__bootloader_start as *const u8) as u64;
             bl_end = &__bootloader_end as *const u8 as u64;
         }
-        let kernel_start_page_addr = get_page_addr(bl_start);
-        let kernel_end_page_addr = bl_end.next_multiple_of(page_size());
-        let kernel_size = kernel_end_page_addr - kernel_start_page_addr;
+        let bl_start_page_addr = get_page_addr(bl_start);
+        let bl_end_page_addr = bl_end.next_multiple_of(page_size());
+        let bl_size = bl_end_page_addr - bl_start_page_addr;
         map.add_entry(MemoryMapEntry {
-            base_addr: kernel_start_page_addr,
-            size: MemSize { bytes: kernel_size },
-            end_addr: kernel_end_page_addr,
+            base_addr: bl_start_page_addr,
+            size: MemSize { bytes: bl_size },
+            end_addr: bl_end_page_addr,
             entry_type: EntryType::Bootloader,
         })?;
 

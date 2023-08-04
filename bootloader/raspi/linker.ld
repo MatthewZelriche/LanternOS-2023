@@ -8,6 +8,7 @@ SECTIONS
     /* We also start our stack here */
     . = 0x80000;
     __stack = .;
+    __bootloader_start = .;
     .text :
     {
       KEEP(*(.text.boot)) *(.text .text.*)
