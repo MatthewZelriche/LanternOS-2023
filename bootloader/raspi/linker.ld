@@ -2,7 +2,7 @@ INCLUDE common.ld
 
 SECTIONS
 {
-    . = 0x6E000; /* 12kib kernel stack */
+    . = 0x7FF00; /* 4kib kernel stack */
     __stack_end = .;
     /* RPI4 expects boot code at this addr */
     /* We also start our stack here */
