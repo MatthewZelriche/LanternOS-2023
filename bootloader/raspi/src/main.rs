@@ -5,7 +5,12 @@
 mod mem_size;
 mod memory_map;
 
-use core::{arch::global_asm, panic::PanicInfo};
+use core::{
+    arch::global_asm,
+    mem::transmute,
+    panic::PanicInfo,
+    slice::{from_raw_parts, from_raw_parts_mut},
+};
 
 use align_data::include_aligned;
 use elf_parse::{ElfFile, MachineType};
@@ -66,28 +71,45 @@ pub extern "C" fn main(dtb_ptr: *const u8) {
     println!("");
     println!("{}", map);
 
-    println!("Setting up page frame allocator...");
-    // Initialize all free pages in the map into the freelist
-    for entry in map.get_entries() {
-        match entry.entry_type {
-            memory_map::EntryType::Free => {
-                for addr in (entry.base_addr..entry.end_addr).step_by(page_size() as usize) {
-                    // If we fail to add a page to the free list, just silently ignore
-                    let _ = FRAME_ALLOCATOR.lock().free_page(addr as *mut u64);
-                }
-            }
-            _ => (),
-        }
-    }
-    println!(
-        "Initialized page frame allocator with {} free pages",
-        FRAME_ALLOCATOR.lock().num_free_pages()
-    );
-
-    println!("Begin parsing kernel ELF...");
     let kernel_elf = ElfFile::new(KERNEL).expect("Failed to parse kernel ELF");
     if kernel_elf.hdr.machine != MachineType::AARCH64 {
         panic!("Kernel ELF file is using the wrong architecture!");
+    }
+    println!("Successfully parsed kernel ELF");
+
+    // Copy kernel into memory
+    // TODO: Add this to memory map
+    for program in kernel_elf
+        .program_headers()
+        .expect("Kernel ELF has no program segments")
+    {
+        // Loadable segment
+        if program.program_type == 1 {
+            let file_segment = unsafe {
+                from_raw_parts(
+                    KERNEL.as_ptr().add(program.offset as usize),
+                    program.filesz as usize,
+                )
+            };
+            let mem_segment =
+                unsafe { from_raw_parts_mut(program.virt_addr as *mut u8, program.memsz as usize) };
+
+            (&mut mem_segment[0..program.filesz as usize]).copy_from_slice(file_segment);
+
+            if program.memsz > program.filesz {
+                (&mut mem_segment[program.filesz as usize..]).fill(0);
+            }
+        }
+    }
+    println!("Loaded Kernel ELF into memory");
+
+    // Transfer control to the kernel
+    println!("Transferring control to kernel entry point...");
+    println!("");
+    type EntryPoint = extern "C" fn() -> !;
+    let fn_void_ptr = kernel_elf.hdr.entry as *const ();
+    let entry_point: EntryPoint = unsafe { transmute(fn_void_ptr) };
+    entry_point();
     }
     println!("Successfully parsed kernel ELF");
 

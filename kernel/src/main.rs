@@ -1,11 +1,7 @@
 #![no_std]
 #![no_main]
 
-use core::arch::global_asm;
 use core::panic::PanicInfo;
-
-// Loads our entry point, _start, written entirely in assembly
-global_asm!(include_str!("start.S"));
 
 #[macro_export]
 macro_rules! kprint {
@@ -29,7 +25,6 @@ pub fn page_size() -> u64 {
 #[no_mangle]
 pub extern "C" fn main() -> ! {
     kprint!("Hello from kernel main");
-    kprint!("");
 
     // Never return from this diverging fn
     panic!("Reached end of kmain!")

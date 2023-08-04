@@ -1,13 +1,11 @@
 INCLUDE common.ld
 
+ENTRY (main)
+
 SECTIONS
 {
-    . = 0x6E000; /* 12kib kernel stack */
-    __stack_end = .;
-    /* RPI4 expects boot code at this addr */
-    /* We also start our stack here */
-    . = 0x80000;
-    __stack = .;
+    . = 0x50000000;
+    __kernel_start = .;
     .text :
     {
       KEEP(*(.text.boot)) *(.text .text.*)
