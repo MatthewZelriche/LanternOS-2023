@@ -10,3 +10,6 @@ members = [
     "libs/page-frame-allocator",
     "libs/elf-parse",
 ]
+
+[profile.release]
+strip = true
