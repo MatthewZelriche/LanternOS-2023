@@ -39,6 +39,7 @@ checksum = "2d7e60934ceec538daadb9d8432424ed043a904d8e0243f3c6446bce549a46ac"
 name = "bootloader-raspi"
 version = "0.1.0"
 dependencies = [
+ "aarch64-cpu",
  "align-data",
  "arrayvec",
  "elf-parse",
@@ -48,6 +49,7 @@ dependencies = [
  "raspi-concurrency",
  "raspi-paging",
  "raspi-peripherals",
+ "tock-registers",
 ]
 
 [[package]]

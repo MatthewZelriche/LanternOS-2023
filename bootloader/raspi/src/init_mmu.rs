@@ -3,8 +3,7 @@ use aarch64_cpu::{
     registers::{SCTLR_EL1, TCR_EL1, TTBR0_EL1},
 };
 
-use super::paging::PageTableRoot;
-
+use raspi_paging::PageTableRoot;
 use tock_registers::interfaces::{ReadWriteable, Writeable};
 
 pub fn init_mmu(ttbr0: &PageTableRoot) {

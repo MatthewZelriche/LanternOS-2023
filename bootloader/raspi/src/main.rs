@@ -2,12 +2,15 @@
 #![no_main]
 #![feature(int_roundings)]
 
+mod init_mmu;
 mod mem_size;
 mod memory_map;
 
+use crate::init_mmu::init_mmu;
 use core::{
     arch::global_asm,
     mem::transmute,
+    ops::DerefMut,
     panic::PanicInfo,
     slice::{from_raw_parts, from_raw_parts_mut},
 };
@@ -17,6 +20,7 @@ use elf_parse::{ElfFile, MachineType};
 use generic_once_cell::Lazy;
 use page_frame_allocator::PageFrameAllocator;
 use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
+use raspi_paging::{FrameAlloc, PageTableRoot};
 
 use crate::{
     mem_size::MemSize,
@@ -49,8 +53,19 @@ macro_rules! println {
     };
 }
 
-pub static FRAME_ALLOCATOR: Lazy<RawSpinlock, Spinlock<PageFrameAllocator>> =
-    Lazy::new(|| Spinlock::new(PageFrameAllocator::new(page_size())));
+pub struct PageFrameAllocatorNewtype<'a>(PageFrameAllocator<'a>);
+impl FrameAlloc for PageFrameAllocatorNewtype<'_> {
+    fn alloc_frame(&mut self) -> *mut u8 {
+        self.0.alloc_page() as *mut u8
+    }
+}
+
+pub static FRAME_ALLOCATOR: Lazy<RawSpinlock, Spinlock<PageFrameAllocatorNewtype>> =
+    Lazy::new(|| {
+        Spinlock::new(PageFrameAllocatorNewtype(PageFrameAllocator::new(
+            page_size(),
+        )))
+    });
 
 #[no_mangle]
 pub extern "C" fn main(dtb_ptr: *const u8) {
@@ -90,7 +105,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) {
             EntryType::Free => {
                 for addr in (entry.base_addr..entry.end_addr).step_by(page_size() as usize) {
                     // If we fail to add a page to the free list, just silently ignore
-                    let _ = FRAME_ALLOCATOR.lock().free_page(addr as *mut u64);
+                    let _ = FRAME_ALLOCATOR.lock().0.free_page(addr as *mut u64);
                 }
             }
             _ => (),
@@ -98,8 +113,24 @@ pub extern "C" fn main(dtb_ptr: *const u8) {
     }
     println!(
         "Successfully initialized page frame allocator with {} free pages.",
-        FRAME_ALLOCATOR.lock().num_free_pages()
+        FRAME_ALLOCATOR.lock().0.num_free_pages()
     );
+
+    println!("Enabling MMU...");
+    let mut page_table: PageTableRoot;
+    {
+        page_table = PageTableRoot::new(page_size(), FRAME_ALLOCATOR.lock().deref_mut());
+        let max_addr = map.get_total_mem().to_bytes();
+        for page in (0..max_addr).step_by(0x40000000) {
+            page_table
+                .map_1gib_page(page, FRAME_ALLOCATOR.lock().deref_mut())
+                .expect("Failed to Identity map full physical memory");
+        }
+    }
+
+    init_mmu(&page_table);
+    println!("Successfully enabled the MMU");
+
     // Transfer control to the kernel
     println!("Transferring control to kernel entry point...");
     println!("");
@@ -107,8 +138,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) {
     let fn_void_ptr = kernel_elf.hdr.entry as *const ();
     let entry_point: EntryPoint = unsafe { transmute(fn_void_ptr) };
     entry_point();
-
-
+}
 
 fn load_elf(kernel_elf: &ElfFile, map: &mut MemoryMap) {
     // TODO: Less hacky way of loading
