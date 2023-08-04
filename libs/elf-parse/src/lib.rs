@@ -53,6 +53,47 @@ pub struct Elf64SHdr {
     pub entsize: u64,
 }
 
+#[repr(C)]
+pub struct Elf64PHdr {
+    pub program_type: u32,
+    pub flags: u32,
+    pub offset: u64,
+    pub virt_addr: u64,
+    pub phys_addr: u64,
+    pub filesz: u64,
+    pub memsz: u64,
+    pub alignment: u64,
+}
+
+pub struct ProgramHeaderIter<'a> {
+    program_table: &'a [u8],
+    entsize: u64,
+    len: u16,
+    idx: u64,
+}
+
+impl Iterator for ProgramHeaderIter<'_> {
+    type Item = Elf64PHdr;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let phdr_start = (self.idx * self.entsize) as usize;
+        let phdr_end_exclusive = ((self.idx + 1) * self.entsize) as usize;
+
+        let res = if self.idx >= self.len.into() {
+            None
+        } else {
+            unsafe {
+                Some(ptr::read(
+                    self.program_table[phdr_start..phdr_end_exclusive].as_ptr() as *const Elf64PHdr,
+                ))
+            }
+        };
+
+        self.idx += 1;
+        res
+    }
+}
+
 pub struct SectionHeaderIter<'a> {
     section_table: &'a [u8],
     entsize: u64,
@@ -135,6 +176,19 @@ impl<'b: 'a, 'a> ElfFile<'b> {
                 section_table: &self.bytes[off as usize..table_end],
                 entsize: self.hdr.sh_entsize.into(),
                 len: self.hdr.sh_num,
+                idx: 0,
+            }),
+        }
+    }
+
+    pub fn program_headers(&self) -> Option<ProgramHeaderIter> {
+        let table_end = (self.hdr.ph_off + (self.hdr.ph_num * self.hdr.ph_entsize) as u64) as usize;
+        match self.hdr.ph_off {
+            0 => None,
+            off => Some(ProgramHeaderIter {
+                program_table: &self.bytes[off as usize..table_end],
+                entsize: self.hdr.ph_entsize.into(),
+                len: self.hdr.ph_num,
                 idx: 0,
             }),
         }
