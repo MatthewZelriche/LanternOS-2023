@@ -15,8 +15,7 @@ kernel-dbg:
 	mkdir -p out/
 	cargo objcopy --bin kernel --target aarch64-unknown-none -- out/lantern-os.elf
 	cargo build --bin bootloader-raspi --target aarch64-unknown-none
-	mkdir -p out/
-	cargo objcopy --bin bootloader-raspi --target aarch64-unknown-none -- out/kernel8.img
+	cargo objcopy --bin bootloader-raspi --target aarch64-unknown-none -- -O binary out/kernel8.img
 
 qemu: kernel-dbg
 	$(QEMU_PATH)qemu-system-aarch64 -M raspi4b4g -kernel out/kernel8.img -serial stdio
