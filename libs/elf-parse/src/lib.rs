@@ -1,6 +1,6 @@
 #![no_std]
 
-use core::{mem::size_of, ptr};
+use core::{ffi::CStr, mem::size_of, ptr, slice::from_raw_parts};
 
 const IDENT_SZ: usize = 16;
 
@@ -92,6 +92,7 @@ pub enum Error {
 
 pub struct ElfFile<'a> {
     bytes: &'a [u8],
+    string_table: Option<&'a [u8]>,
     pub hdr: Elf64EHdr,
 }
 
@@ -102,8 +103,9 @@ impl<'b: 'a, 'a> ElfFile<'b> {
             return Err(Error::SizeTooSmall);
         }
 
-        let file = ElfFile::<'b> {
+        let mut file = ElfFile::<'b> {
             bytes,
+            string_table: None,
             hdr: unsafe { ptr::read((&bytes[0..hdr_size]).as_ptr() as *const Elf64EHdr) },
         };
 
@@ -114,6 +116,10 @@ impl<'b: 'a, 'a> ElfFile<'b> {
             return Err(Error::UnsupportedFile);
         }
 
+        if file.hdr.sh_strndx != 0 {
+            file.string_table = file.find_string_table_offset();
+        }
+
         Ok(file)
     }
 
@@ -122,16 +128,38 @@ impl<'b: 'a, 'a> ElfFile<'b> {
     }
 
     pub fn section_headers(&self) -> Option<SectionHeaderIter> {
-        let table_size =
-            (self.hdr.sh_off + (self.hdr.sh_num * self.hdr.sh_entsize) as u64) as usize;
+        let table_end = (self.hdr.sh_off + (self.hdr.sh_num * self.hdr.sh_entsize) as u64) as usize;
         match self.hdr.sh_off {
             0 => None,
             off => Some(SectionHeaderIter {
-                section_table: &self.bytes[off as usize..table_size],
+                section_table: &self.bytes[off as usize..table_end],
                 entsize: self.hdr.sh_entsize.into(),
                 len: self.hdr.sh_num,
                 idx: 0,
             }),
+        }
+    }
+
+    pub fn get_section_name(&self, hdr: &Elf64SHdr) -> Option<&CStr> {
+        CStr::from_bytes_until_nul(&self.string_table?[hdr.name as usize..]).ok()
+    }
+
+    fn find_string_table_offset(&self) -> Option<&'a [u8]> {
+        let hdr = self
+            .section_headers()?
+            .enumerate()
+            .find(|(idx, _)| *idx == self.hdr.sh_strndx as usize)?
+            .1;
+
+        if hdr.size == 0 {
+            return None;
+        }
+
+        unsafe {
+            Some(from_raw_parts(
+                self.bytes.as_ptr().add(hdr.offset as usize),
+                (hdr.offset + hdr.size) as usize,
+            ))
         }
     }
 }
