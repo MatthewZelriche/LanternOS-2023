@@ -129,6 +129,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
 
     println!("Enabling MMU...");
     let mut page_table: PageTableRoot;
+    let mut ttbr1 = PageTableRoot::new(page_size(), FRAME_ALLOCATOR.lock().deref_mut());
     {
         // Identity map all of physical memory as 1GiB huge pages
         page_table = PageTableRoot::new(page_size(), FRAME_ALLOCATOR.lock().deref_mut());
@@ -151,10 +152,10 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
             (kernel_region.base_addr..kernel_region.end_addr).step_by(page_size() as usize)
         {
             // TODO: Dehardcode
-            page_table
+            ttbr1
                 .map_page(
                     phys_page,
-                    raspi_paging::VirtualAddr(0x1000000000 + offset),
+                    raspi_paging::VirtualAddr(0xFFFF000000000000 + offset),
                     FRAME_ALLOCATOR.lock().deref_mut(),
                 )
                 .expect("Failed to virtually map kernel");
@@ -162,7 +163,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
         }
     }
 
-    init_mmu(&page_table);
+    init_mmu(&page_table, &ttbr1);
     println!("Successfully enabled the MMU");
 
     // Transfer control to the kernel
