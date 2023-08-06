@@ -14,6 +14,15 @@ pub struct PageTableRoot<'a> {
 }
 
 impl PageTableRoot<'_> {
+    pub fn from_ptr(ptr: u64, page_size: u64) -> Self {
+        unsafe {
+            PageTableRoot {
+                lvl0_table: from_raw_parts_mut(ptr as *mut Lvl0TableDescriptor, 512),
+                page_size,
+            }
+        }
+    }
+
     pub fn new<T: FrameAlloc>(page_size: u64, alloc: &mut T) -> Self {
         // Allocate a single page for the Level 0 table
         let page = PageTableRoot::new_table_mem(page_size, alloc) as *mut Lvl0TableDescriptor;
@@ -23,6 +32,47 @@ impl PageTableRoot<'_> {
                 page_size,
             }
         }
+    }
+
+    pub fn virt_to_phys(&self, virt_addr: VirtualAddr) -> Result<u64, ()> {
+        let lvl0_table = &self.lvl0_table;
+        let lvl0_descriptor = lvl0_table[virt_addr.lvl0_idx() as usize];
+        if !lvl0_descriptor.valid() {
+            return Err(());
+        }
+
+        let lvl1_table_ptr = (lvl0_descriptor.next_table_addr() << 12) as *mut Lvl1TableDescriptor;
+        let lvl1_table = unsafe { from_raw_parts_mut(lvl1_table_ptr, 512) };
+        let lvl1_descriptor = lvl1_table[virt_addr.lvl1_idx() as usize];
+        if !lvl1_descriptor.valid() || !lvl1_descriptor.is_table() {
+            return Err(());
+        }
+
+        let lvl2_table_ptr = (lvl1_descriptor.next_table_addr() << 12) as *mut Lvl2TableDescriptor;
+        let lvl2_table = unsafe { from_raw_parts_mut(lvl2_table_ptr, 512) };
+        let lvl2_descriptor = lvl2_table[virt_addr.lvl2_idx() as usize];
+        if !lvl2_descriptor.valid() || !lvl1_descriptor.is_table() {
+            return Err(());
+        }
+
+        let page_table_ptr = (lvl2_descriptor.next_table_addr() << 12) as *mut PageDescriptor;
+        let page_table = unsafe { from_raw_parts_mut(page_table_ptr, 512) };
+        let page_descriptor = page_table[virt_addr.lvl3_idx() as usize];
+
+        let lower: u64 = virt_addr.0.bit_range(11, 0);
+        Ok((page_descriptor.output_addr() << 12) | lower)
+    }
+
+    pub fn unmap_1gib_page(&mut self, addr: u64) {
+        let virt_addr = VirtualAddr(addr);
+
+        let lvl0_table = &mut self.lvl0_table;
+        let lvl0_descriptor = lvl0_table[virt_addr.lvl0_idx() as usize];
+        if !lvl0_descriptor.valid() {}
+
+        let lvl1_table_ptr = (lvl0_descriptor.next_table_addr() << 12) as *mut Lvl1BlockDescriptor;
+        let lvl1_table = unsafe { from_raw_parts_mut(lvl1_table_ptr, 512) };
+        lvl1_table[virt_addr.lvl1_idx() as usize] = Lvl1BlockDescriptor(0);
     }
 
     pub fn map_1gib_page<T: FrameAlloc>(&mut self, phys: u64, alloc: &mut T) -> Result<(), ()> {
