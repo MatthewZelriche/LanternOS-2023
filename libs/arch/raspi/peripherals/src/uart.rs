@@ -4,10 +4,10 @@ use crate::mmio::{mmio_read, mmio_write};
 use bitfield::{Bit, BitMut};
 use core::{fmt::Write, hint};
 
-use super::{mailbox::SetClockRate, MAILBOX, MMIO};
+use super::MMIO;
 
 impl Uart {
-    const INIT_RATE_DEF: u32 = 3000000;
+    pub const INIT_RATE_DEF: u32 = 3000000;
     pub fn new() -> Self {
         let mut instance = Uart {};
         // Unwrap here since it would be fatal for this initialization to fail
@@ -27,10 +27,6 @@ impl Uart {
 
         // Shut down UART0
         mmio_write(mmio_lock.uart0_cr, 0);
-
-        // Set UART clock rate
-        let msg = SetClockRate::new(2, clock_rate);
-        let _ = MAILBOX.lock().send_message(msg)?;
 
         let baud: u32 = clock_rate / 16;
         let baud_whole: u32 = clock_rate / (16 * baud);
