@@ -19,7 +19,7 @@ use elf_parse::{ElfFile, MachineType};
 use generic_once_cell::Lazy;
 use page_frame_allocator::PageFrameAllocator;
 use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
-use raspi_paging::{FrameAlloc, PageTableRoot, VirtualAddr};
+use raspi_paging::{FrameAlloc, PageTableRoot, VirtualAddr, MemType};
 use raspi_peripherals::{
     mailbox::{Message, SetClockRate},
     uart::Uart,
@@ -164,6 +164,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
             .map_page(
                 phys_page,
                 raspi_paging::VirtualAddr(0xFFFF000000000000 + offset),
+                MemType::NORMAL_CACHEABLE,
                 FRAME_ALLOCATOR.lock().deref_mut(),
             )
             .expect("Failed to virtually map kernel");
@@ -183,6 +184,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
             .map_page(
                 phys_page,
                 VirtualAddr(stack_virt_start + offset),
+                MemType::NORMAL_CACHEABLE,
                 FRAME_ALLOCATOR.lock().deref_mut(),
             )
             .expect("Failed to virtually map stack");
@@ -200,7 +202,8 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
         .expect("Failed to find MMIO in memory");
     for phys_page in (mmio_segment.base_addr..mmio_segment.end_addr).step_by(page_size() as usize) {
         ttbr1
-            .map_page(phys_page, VirtualAddr(mmio_start + offset), FRAME_ALLOCATOR.lock().deref_mut())
+            .map_page(phys_page, VirtualAddr(mmio_start + offset), 
+            MemType::DEVICE, FRAME_ALLOCATOR.lock().deref_mut())
             .expect("Failed to remap MMIO to higher half!");
         offset += page_size();
     }

@@ -4,6 +4,13 @@ use core::{mem::size_of, slice::from_raw_parts_mut};
 
 use bitfield::{bitfield, BitRange};
 
+#[derive(PartialEq, Clone, Copy)]
+pub struct MemType(u8);
+impl MemType {
+    pub const DEVICE: MemType = MemType(0);
+    pub const NORMAL_CACHEABLE: MemType = MemType(1);
+}
+
 pub trait FrameAlloc {
     fn alloc_frame(&mut self) -> *mut u8;
 }
@@ -169,6 +176,7 @@ impl PageTableRoot<'_> {
         &mut self,
         phys: u64,
         virt_addr: VirtualAddr,
+        mem_type: MemType,
         alloc: &mut T,
     ) -> Result<(), ()> {
         assert!((phys as *mut u64).is_aligned_to(0x1000));
@@ -223,6 +231,8 @@ impl PageTableRoot<'_> {
         page_descriptor.set_is_page(true);
         page_descriptor.set_access_flag(true);
         page_descriptor.set_output_addr(phys.bit_range(47, 12));
+
+        page_descriptor.set_attrix_idx(mem_type.0.into());
 
         // Don't forget to store the page descriptor back into the table
         page_table[virt_addr.lvl3_idx() as usize] = page_descriptor;
