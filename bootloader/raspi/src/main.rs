@@ -21,7 +21,11 @@ use generic_once_cell::Lazy;
 use page_frame_allocator::PageFrameAllocator;
 use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
 use raspi_paging::{FrameAlloc, PageTableRoot};
-use raspi_peripherals::{mailbox::SetClockRate, uart::Uart, MAILBOX};
+use raspi_peripherals::{
+    mailbox::{Message, SetClockRate},
+    uart::Uart,
+    MAILBOX,
+};
 
 use crate::{
     mem_size::MemSize,
@@ -71,11 +75,10 @@ pub static FRAME_ALLOCATOR: Lazy<RawSpinlock, Spinlock<PageFrameAllocatorNewtype
 #[no_mangle]
 pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     // Inform the raspi of our desired clock speed for the UART. Necessary for UART to function.
-    let msg = SetClockRate::new(2, Uart::INIT_RATE_DEF);
-    let _ = MAILBOX
-        .lock()
-        .send_message(msg)
-        .expect("Failed to set clock rate");
+    // Mailbox requires physical address instead of virtual, but we don't have the MMU up yet
+    // so it currently doesn't matter.
+    let mut msg = SetClockRate::new(2, Uart::INIT_RATE_DEF);
+    MAILBOX.lock().send_message((&mut msg) as *mut Message<_>);
 
     println!("Raspi bootloader is preparing environment for kernel...");
 

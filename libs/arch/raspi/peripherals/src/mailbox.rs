@@ -7,8 +7,8 @@ use crate::{
     MMIO,
 };
 
-const RESP_SUCCESS: u32 = 0x80000000;
-const _RESP_FAIL: u32 = 0x80000001;
+pub const RESP_SUCCESS: u32 = 0x80000000;
+pub const RESP_FAIL: u32 = 0x80000001;
 const MBOX_FULL_BIT: usize = 31;
 const MBOX_EMPTY_BIT: usize = 30;
 
@@ -19,16 +19,24 @@ impl Mailbox {
         Mailbox {}
     }
 
-    pub fn send_message<T>(&self, mut msg: Message<T>) -> Result<Message<T>, ()> {
+    /// Sends a message to the Raspberry Pi Mailbox, blocking until the message is processed
+    ///
+    /// msg_ptr must contain the 32 bit physical address of the message struct. It may be modified in-place
+    /// in order for the Mailbox to provide result data. msg_ptr must also be aligned to a 16 byte
+    /// boundary.
+    ///
+    /// # Panics
+    /// Panics if the provided pointer is greater than 32 bits or is not aligned to a 16 bit boundary.
+    ///
+    pub fn send_message<T>(&self, msg_ptr: *mut Message<T>) {
+        // The mailbox register is apparently strictly 32-bits size, so how can we send a physical address
+        // above 4GiB? For now, just assert that the given address will fit
+        assert!((msg_ptr as u64) < 0x100000000);
+        assert!(msg_ptr.is_aligned_to(16));
         let mmio_lock = MMIO.lock();
 
-        // Ptr we receive must be aligned to 16 bytes
-        let ptr = &mut msg as *mut Message<T>;
-        assert!(ptr.is_aligned_to(16));
-
         // Last 4 bits must be set to channel num
-        // TODO: The write register is 32 bits. But what if our address is 64 bits?
-        let mut register_data = ptr as u32;
+        let mut register_data = msg_ptr as u32;
         register_data.set_bit_range(3, 0, 8);
 
         // Blocking request...
@@ -36,7 +44,7 @@ impl Mailbox {
             hint::spin_loop();
         }
 
-        mmio_write(mmio_lock.mbox_wr, register_data as u32);
+        mmio_write(mmio_lock.mbox_wr, register_data);
 
         // Wait until we've received a response...
         // TODO: Note that when we become multithreaded this might cause problems, as
@@ -44,19 +52,13 @@ impl Mailbox {
         while mmio_read(mmio_lock.mbox_status).bit(MBOX_EMPTY_BIT) {
             hint::spin_loop();
         }
-
-        if msg.code != RESP_SUCCESS {
-            Err(())
-        } else {
-            Ok(msg)
-        }
     }
 }
 
 #[repr(C, align(16))]
 pub struct Message<T> {
     buf_size: u32,
-    code: u32,
+    pub code: u32,
     tag: u32,
     pub data: T,
     null: u32,

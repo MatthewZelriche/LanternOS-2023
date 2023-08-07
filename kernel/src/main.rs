@@ -22,6 +22,10 @@ pub fn page_size() -> u64 {
     unsafe { (&__PG_SIZE as *const u8) as u64 }
 }
 
+/*
+ * By the time we reach this fn, the bootloader has already configured the UART clock rate and baud rate.
+ * There's no need to send a mailbox message here; it would be redundant
+ */
 #[no_mangle]
 pub extern "C" fn main() -> ! {
     kprint!("Hello from kernel main");

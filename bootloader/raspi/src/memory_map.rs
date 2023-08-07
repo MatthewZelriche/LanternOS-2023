@@ -15,7 +15,11 @@ extern "C" {
 }
 
 use crate::{mem_size::MemSize, page_size};
-use raspi_peripherals::{mailbox::GetGpuMemory, mmio::Mmio, MAILBOX};
+use raspi_peripherals::{
+    mailbox::{GetGpuMemory, Message, RESP_SUCCESS},
+    mmio::Mmio,
+    MAILBOX,
+};
 
 pub fn get_page_addr(addr: u64) -> u64 {
     addr & !(page_size() - 1)
@@ -220,11 +224,11 @@ impl MemoryMap {
         })?;
 
         // Reserve GPU firmware
-        let msg = GetGpuMemory::new();
-        let msg = MAILBOX
-            .lock()
-            .send_message(msg)
-            .map_err(|_| DevTreeError::ParseError)?;
+        let mut msg = GetGpuMemory::new();
+        MAILBOX.lock().send_message((&mut msg) as *mut Message<_>);
+        if msg.code != RESP_SUCCESS {
+            return Err(DevTreeError::ParseError);
+        }
         let start: u64 = msg.data.get_base().into();
         let size: u64 = msg.data.get_size().into();
         let end: u64 = start + size;
