@@ -7,11 +7,11 @@ const IDENT_SZ: usize = 16;
 #[derive(PartialEq, Clone, Copy)]
 pub struct ElfType(u16);
 impl ElfType {
-    const NONE: ElfType = ElfType(0);
-    const REL: ElfType = ElfType(1);
-    const EXEC: ElfType = ElfType(2);
-    const DYN: ElfType = ElfType(3);
-    const CORE: ElfType = ElfType(4);
+    pub const NONE: ElfType = ElfType(0);
+    pub const REL: ElfType = ElfType(1);
+    pub const EXEC: ElfType = ElfType(2);
+    pub const DYN: ElfType = ElfType(3);
+    pub const CORE: ElfType = ElfType(4);
 }
 
 #[derive(PartialEq, Clone, Copy)]
