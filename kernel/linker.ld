@@ -8,7 +8,7 @@ SECTIONS
     __kernel_start = .;
     .text :
     {
-      KEEP(*(.text.boot)) *(.text .text.*)
+      *(.text .text.*)
     }
     . = ALIGN(16);
     .rodata :

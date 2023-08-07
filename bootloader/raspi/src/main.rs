@@ -190,6 +190,21 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     }
     let stack_top = stack_virt_start + offset;
 
+    // Remap MMIO
+    let mmio_start = 0xFFFF008000000000;
+    let mut offset = 0;
+    let mmio_segment = map
+        .get_entries()
+        .iter()
+        .find(|x| x.entry_type == EntryType::Mmio)
+        .expect("Failed to find MMIO in memory");
+    for phys_page in (mmio_segment.base_addr..mmio_segment.end_addr).step_by(page_size() as usize) {
+        ttbr1
+            .map_page(phys_page, VirtualAddr(mmio_start + offset), FRAME_ALLOCATOR.lock().deref_mut())
+            .expect("Failed to remap MMIO to higher half!");
+        offset += page_size();
+    }
+
     init_mmu(&page_table, &ttbr1);
     println!("Successfully enabled the MMU");
 

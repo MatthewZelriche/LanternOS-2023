@@ -102,6 +102,7 @@ dependencies = [
  "fdt-rs",
  "page-frame-allocator",
  "raspi-concurrency",
+ "raspi-paging",
  "raspi-peripherals",
  "tock-registers",
 ]

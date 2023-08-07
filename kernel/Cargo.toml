@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 raspi-concurrency = { path = "../libs/arch/raspi/concurrency" }
 raspi-peripherals = { path = "../libs/arch/raspi/peripherals" }
+raspi-paging = { path = "../libs/arch/raspi/paging" }
 page-frame-allocator = { path = "../libs/page-frame-allocator" }
 tock-registers = "0.8.1"
 aarch64-cpu = { version = "9.x.x" }
