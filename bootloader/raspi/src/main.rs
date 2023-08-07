@@ -8,8 +8,7 @@ mod memory_map;
 
 use crate::init_mmu::init_mmu;
 use core::{
-    arch::global_asm,
-    mem::transmute,
+    arch::{asm, global_asm},
     ops::DerefMut,
     panic::PanicInfo,
     slice::{from_raw_parts, from_raw_parts_mut},
@@ -20,7 +19,7 @@ use elf_parse::{ElfFile, MachineType};
 use generic_once_cell::Lazy;
 use page_frame_allocator::PageFrameAllocator;
 use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
-use raspi_paging::{FrameAlloc, PageTableRoot};
+use raspi_paging::{FrameAlloc, PageTableRoot, VirtualAddr};
 use raspi_peripherals::{
     mailbox::{Message, SetClockRate},
     uart::Uart,
@@ -141,38 +140,55 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     println!("Enabling MMU...");
     let mut page_table: PageTableRoot;
     let mut ttbr1 = PageTableRoot::new(page_size(), FRAME_ALLOCATOR.lock().deref_mut());
-    {
-        // Identity map all of physical memory as 1GiB huge pages
-        page_table = PageTableRoot::new(page_size(), FRAME_ALLOCATOR.lock().deref_mut());
-        let max_addr = map.get_total_mem().to_bytes();
-        for page in (0..max_addr).step_by(0x40000000) {
-            page_table
-                .map_1gib_page(page, FRAME_ALLOCATOR.lock().deref_mut())
-                .expect("Failed to Identity map full physical memory");
-        }
-
-        // Virtually map kernel memory to 64GiB with 4KiB pages
-        let kernel_region = map
-            .get_entries()
-            .iter()
-            .find(|x| x.entry_type == EntryType::Kernel)
-            .expect("Failed to find kernel in memory");
-
-        let mut offset = 0;
-        for phys_page in
-            (kernel_region.base_addr..kernel_region.end_addr).step_by(page_size() as usize)
-        {
-            // TODO: Dehardcode
-            ttbr1
-                .map_page(
-                    phys_page,
-                    raspi_paging::VirtualAddr(0xFFFF000000000000 + offset),
-                    FRAME_ALLOCATOR.lock().deref_mut(),
-                )
-                .expect("Failed to virtually map kernel");
-            offset += page_size();
-        }
+    // Identity map all of physical memory as 1GiB huge pages
+    page_table = PageTableRoot::new(page_size(), FRAME_ALLOCATOR.lock().deref_mut());
+    let max_addr = map.get_total_mem().to_bytes();
+    for page in (0..max_addr).step_by(0x40000000) {
+        page_table
+            .map_1gib_page(page, FRAME_ALLOCATOR.lock().deref_mut())
+            .expect("Failed to Identity map full physical memory");
     }
+
+    // Virtually map kernel memory to higher half with 4KiB pages
+    let kernel_region = map
+        .get_entries()
+        .iter()
+        .find(|x| x.entry_type == EntryType::Kernel)
+        .expect("Failed to find kernel in memory");
+
+    let mut offset = 0;
+    for phys_page in (kernel_region.base_addr..kernel_region.end_addr).step_by(page_size() as usize)
+    {
+        // TODO: Dehardcode
+        ttbr1
+            .map_page(
+                phys_page,
+                raspi_paging::VirtualAddr(0xFFFF000000000000 + offset),
+                FRAME_ALLOCATOR.lock().deref_mut(),
+            )
+            .expect("Failed to virtually map kernel");
+        offset += page_size();
+    }
+    // Also map the stack to the higher half
+    // TODO: Guard page
+    let stack_region = map
+        .get_entries()
+        .iter()
+        .find(|x| x.entry_type == EntryType::Stack)
+        .expect("Couldn't find kernel stack in memory");
+    let stack_virt_start = 0xFFFF000000000000 + offset;
+    offset = 0;
+    for phys_page in (stack_region.base_addr..stack_region.end_addr).step_by(page_size() as usize) {
+        ttbr1
+            .map_page(
+                phys_page,
+                VirtualAddr(stack_virt_start + offset),
+                FRAME_ALLOCATOR.lock().deref_mut(),
+            )
+            .expect("Failed to virtually map stack");
+        offset += page_size();
+    }
+    let stack_top = stack_virt_start + offset;
 
     init_mmu(&page_table, &ttbr1);
     println!("Successfully enabled the MMU");
@@ -183,10 +199,15 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
         kernel_elf.hdr.entry
     );
     println!("");
-    type EntryPoint = extern "C" fn() -> !;
+
     let fn_void_ptr = kernel_elf.hdr.entry as *const ();
-    let entry_point: EntryPoint = unsafe { transmute(fn_void_ptr) };
-    entry_point();
+    unsafe {
+        asm!("mov sp, {stack_top}", 
+        "br {entry_point}", 
+        stack_top = in(reg) stack_top, 
+        entry_point = in(reg) fn_void_ptr);
+    }
+    loop {}
 }
 
 fn load_elf(kernel_elf: &ElfFile, map: &mut MemoryMap) {
