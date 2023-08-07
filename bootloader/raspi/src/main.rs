@@ -19,9 +19,9 @@ use elf_parse::{ElfFile, MachineType};
 use generic_once_cell::Lazy;
 use page_frame_allocator::PageFrameAllocator;
 use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
-use raspi_paging::{FrameAlloc, PageTableRoot, VirtualAddr, MemType};
+use raspi_paging::{FrameAlloc, MemType, PageTableRoot, VirtualAddr};
 use raspi_peripherals::{
-    mailbox::{Message, SetClockRate, Mailbox},
+    mailbox::{Mailbox, Message, SetClockRate},
     uart::Uart,
 };
 
@@ -30,8 +30,7 @@ use crate::{
     memory_map::{EntryType, MemoryMap, MemoryMapEntry},
 };
 
-pub static UART: Lazy<RawSpinlock, Spinlock<Uart>> =
-    Lazy::new(|| Spinlock::new(Uart::new()));
+pub static UART: Lazy<RawSpinlock, Spinlock<Uart>> = Lazy::new(|| Spinlock::new(Uart::new()));
 pub static MAILBOX: Lazy<RawSpinlock, Spinlock<Mailbox>> =
     Lazy::new(|| Spinlock::new(Mailbox::new()));
 
@@ -45,9 +44,13 @@ global_asm!(include_str!("start.S"));
 
 extern "C" {
     static __PG_SIZE: u8;
+    static __KERNEL_VIRT_START: u8;
 }
 pub fn page_size() -> u64 {
     unsafe { (&__PG_SIZE as *const u8) as u64 }
+}
+pub fn kernel_virt_start() -> u64 {
+    unsafe { (&__KERNEL_VIRT_START as *const u8) as u64 }
 }
 
 #[macro_export]
@@ -159,6 +162,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
         .find(|x| x.entry_type == EntryType::Kernel)
         .expect("Failed to find kernel in memory");
 
+    let kernel_virt_start = kernel_virt_start();
     let mut offset = 0;
     for phys_page in (kernel_region.base_addr..kernel_region.end_addr).step_by(page_size() as usize)
     {
@@ -166,7 +170,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
         ttbr1
             .map_page(
                 phys_page,
-                raspi_paging::VirtualAddr(0xFFFF000000000000 + offset),
+                raspi_paging::VirtualAddr(kernel_virt_start + offset),
                 MemType::NORMAL_CACHEABLE,
                 FRAME_ALLOCATOR.lock().deref_mut(),
             )
@@ -180,7 +184,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
         .iter()
         .find(|x| x.entry_type == EntryType::Stack)
         .expect("Couldn't find kernel stack in memory");
-    let stack_virt_start = 0xFFFF000000000000 + offset;
+    let stack_virt_start = kernel_virt_start + offset;
     offset = 0;
     for phys_page in (stack_region.base_addr..stack_region.end_addr).step_by(page_size() as usize) {
         ttbr1
@@ -205,8 +209,12 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
         .expect("Failed to find MMIO in memory");
     for phys_page in (mmio_segment.base_addr..mmio_segment.end_addr).step_by(page_size() as usize) {
         ttbr1
-            .map_page(phys_page, VirtualAddr(mmio_start + offset), 
-            MemType::DEVICE, FRAME_ALLOCATOR.lock().deref_mut())
+            .map_page(
+                phys_page,
+                VirtualAddr(mmio_start + offset),
+                MemType::DEVICE,
+                FRAME_ALLOCATOR.lock().deref_mut(),
+            )
             .expect("Failed to remap MMIO to higher half!");
         offset += page_size();
     }

@@ -4,10 +4,13 @@ use core::panic::PanicInfo;
 
 extern "C" {
     static __PG_SIZE: u8;
+    static __KERNEL_VIRT_START: u8;
 }
-
 pub fn page_size() -> u64 {
     unsafe { (&__PG_SIZE as *const u8) as u64 }
+}
+pub fn kernel_virt_start() -> u64 {
+    unsafe { (&__KERNEL_VIRT_START as *const u8) as u64 }
 }
 
 #[macro_export]

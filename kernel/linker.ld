@@ -4,8 +4,7 @@ ENTRY (main)
 
 SECTIONS
 {
-    . = 0xFFFF000000000000;
-    __kernel_start = .;
+    . = __KERNEL_VIRT_START;
     .text :
     {
       *(.text .text.*)
@@ -21,13 +20,8 @@ SECTIONS
      	*(.data)
     }
     . = ALIGN(16);
-    /* BSS info needed to zero out the BSS section, as expected */
     .bss :
     {
-      __bss_start = .;
         *(.bss)
-      __bss_end = .;
     }
-    __kernel_end = .;
-    __bss_size = __bss_end - __bss_start;
 }
