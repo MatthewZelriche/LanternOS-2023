@@ -14,11 +14,10 @@ extern "C" {
     static __stack: u8;
 }
 
-use crate::{mem_size::MemSize, page_size};
+use crate::{mem_size::MemSize, page_size, MAILBOX};
 use raspi_peripherals::{
-    mailbox::{GetGpuMemory, Message, RESP_SUCCESS},
-    mmio::Mmio,
-    MAILBOX,
+    mailbox::{GetGpuMemory, Mailbox, Message},
+    PERIPHERALS_PHYS_BASE, PERIPHERALS_PHYS_END,
 };
 
 pub fn get_page_addr(addr: u64) -> u64 {
@@ -226,7 +225,7 @@ impl MemoryMap {
         // Reserve GPU firmware
         let mut msg = GetGpuMemory::new();
         MAILBOX.lock().send_message((&mut msg) as *mut Message<_>);
-        if msg.code != RESP_SUCCESS {
+        if msg.code != Mailbox::RESP_SUCCESS {
             return Err(DevTreeError::ParseError);
         }
         let start: u64 = msg.data.get_base().into();
@@ -240,11 +239,11 @@ impl MemoryMap {
         })?;
 
         // Reserve the region for MMIO
-        let size = Mmio::PERIPHERALS_PHYS_END - Mmio::PERIPHERALS_PHYS_BASE;
+        let size = PERIPHERALS_PHYS_END - PERIPHERALS_PHYS_BASE;
         map.add_entry(MemoryMapEntry {
-            base_addr: Mmio::PERIPHERALS_PHYS_BASE,
+            base_addr: PERIPHERALS_PHYS_BASE,
             size: MemSize { bytes: size },
-            end_addr: Mmio::PERIPHERALS_PHYS_END,
+            end_addr: PERIPHERALS_PHYS_END,
             entry_type: EntryType::Mmio,
         })?;
 

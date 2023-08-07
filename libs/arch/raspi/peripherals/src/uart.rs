@@ -1,15 +1,24 @@
-pub struct Uart;
-
-use crate::mmio::{mmio_read, mmio_write};
+use crate::{mmio_read, mmio_write};
 use bitfield::{Bit, BitMut};
 use core::{fmt::Write, hint};
 
-use super::MMIO;
+pub struct Uart {
+    mmio_base: u64,
+}
 
 impl Uart {
     pub const INIT_RATE_DEF: u32 = 3000000;
-    pub fn new() -> Self {
-        let mut instance = Uart {};
+
+    pub const UART0_BASE_OFFSET: u64 = 0x201000;
+    pub const UART0_WRITE_OFFSET: u64 = Uart::UART0_BASE_OFFSET;
+    pub const UART0_FR_OFFSET: u64 = Uart::UART0_BASE_OFFSET + 0x18;
+    pub const UART0_IBRD_OFFSET: u64 = Uart::UART0_BASE_OFFSET + 0x24;
+    pub const UART0_FBRD_OFFSET: u64 = Uart::UART0_BASE_OFFSET + 0x28;
+    pub const UART0_LCR_H_OFFSET: u64 = Uart::UART0_BASE_OFFSET + 0x2c;
+    pub const UART0_CR_OFFSET: u64 = Uart::UART0_BASE_OFFSET + 0x30;
+
+    pub fn new(mmio_base: u64) -> Self {
+        let mut instance = Uart { mmio_base };
         // Unwrap here since it would be fatal for this initialization to fail
         // before we have a functional way of outputting text
         // TODO: May be able to change this once we get framebuffer working
@@ -18,49 +27,52 @@ impl Uart {
         instance
     }
 
+    pub fn update_mmio_base(&mut self, mmio_base: u64) {
+        self.mmio_base = mmio_base;
+    }
+
     pub fn reset(&mut self, clock_rate: u32) -> Result<(), ()> {
-        let mmio_lock = MMIO.lock();
         // TODO: Currently untested due to lack of access to real hardware
 
         // Wait until buffered output is finished
         self.flush_fifo();
 
         // Shut down UART0
-        mmio_write(mmio_lock.uart0_cr, 0);
+        mmio_write(self.mmio_base + Uart::UART0_CR_OFFSET, 0);
 
         let baud: u32 = clock_rate / 16;
         let baud_whole: u32 = clock_rate / (16 * baud);
         let baud_frac: u32 = clock_rate % (16 * baud);
-        mmio_write(mmio_lock.uart0_ibrd, baud_whole);
-        mmio_write(mmio_lock.uart0_fbrd, baud_frac);
+        mmio_write(self.mmio_base + Uart::UART0_IBRD_OFFSET, baud_whole);
+        mmio_write(self.mmio_base + Uart::UART0_FBRD_OFFSET, baud_frac);
 
         let mut lcr: u32 = 0;
         lcr.set_bit(4, true);
         lcr.set_bit(5, true);
         lcr.set_bit(6, true);
-        mmio_write(mmio_lock.uart0_lcr_h, lcr);
+        mmio_write(self.mmio_base + Uart::UART0_LCR_H_OFFSET, lcr);
 
         // Bring the UART0 back online
         let mut cr_data: u32 = 0;
         cr_data.set_bit(0, true);
         cr_data.set_bit(8, true);
         cr_data.set_bit(9, true);
-        mmio_write(mmio_lock.uart0_cr, cr_data);
+        mmio_write(self.mmio_base + Uart::UART0_CR_OFFSET, cr_data);
 
         Ok(())
     }
 
     fn flush_fifo(&self) {
-        while mmio_read(MMIO.lock().uart_fr).bit(5) {
+        while mmio_read(self.mmio_base + Uart::UART0_FR_OFFSET).bit(5) {
             hint::spin_loop();
         }
     }
 
     pub fn send_byte(&mut self, byte: u8) {
-        while mmio_read(MMIO.lock().uart_fr).bit(5) {
+        while mmio_read(self.mmio_base + Uart::UART0_FR_OFFSET).bit(5) {
             hint::spin_loop();
         }
-        mmio_write(MMIO.lock().uart0_base, byte as u32);
+        mmio_write(self.mmio_base + Uart::UART0_WRITE_OFFSET, byte as u32);
     }
 }
 

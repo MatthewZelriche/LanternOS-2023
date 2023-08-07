@@ -21,15 +21,19 @@ use page_frame_allocator::PageFrameAllocator;
 use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
 use raspi_paging::{FrameAlloc, PageTableRoot, VirtualAddr, MemType};
 use raspi_peripherals::{
-    mailbox::{Message, SetClockRate},
+    mailbox::{Message, SetClockRate, Mailbox},
     uart::Uart,
-    MAILBOX,
 };
 
 use crate::{
     mem_size::MemSize,
     memory_map::{EntryType, MemoryMap, MemoryMapEntry},
 };
+
+pub static UART: Lazy<RawSpinlock, Spinlock<Uart>> =
+    Lazy::new(|| Spinlock::new(Uart::new(raspi_peripherals::MMIO_PHYS_BASE)));
+pub static MAILBOX: Lazy<RawSpinlock, Spinlock<Mailbox>> =
+    Lazy::new(|| Spinlock::new(Mailbox::new(raspi_peripherals::MMIO_PHYS_BASE)));
 
 // TODO: Find a way to handle automatically setting this to page size
 #[repr(align(0x1000))]
@@ -51,7 +55,6 @@ macro_rules! println {
     ($($arg:tt)*) => {
         {
             use core::fmt::Write;
-            use raspi_peripherals::UART;
             writeln!(UART.lock(), $($arg)*).unwrap();
         }
     };

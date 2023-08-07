@@ -3,15 +3,23 @@
 
 use core::{arch::asm, panic::PanicInfo};
 
+use generic_once_cell::Lazy;
+use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
 use raspi_paging::PageTableRoot;
-use raspi_peripherals::MMIO;
+use raspi_peripherals::{mailbox::Mailbox, uart::Uart};
+
+// We set mmio base to a constant, but immediately update it to the correct
+// virtual address in kmain()
+pub static UART: Lazy<RawSpinlock, Spinlock<Uart>> =
+    Lazy::new(|| Spinlock::new(Uart::new(raspi_peripherals::MMIO_PHYS_BASE)));
+pub static MAILBOX: Lazy<RawSpinlock, Spinlock<Mailbox>> =
+    Lazy::new(|| Spinlock::new(Mailbox::new(raspi_peripherals::MMIO_PHYS_BASE)));
 
 #[macro_export]
 macro_rules! kprint {
     ($($arg:tt)*) => {
         {
             use core::fmt::Write;
-            use raspi_peripherals::UART;
             writeln!(UART.lock(), $($arg)*).unwrap();
         }
     };
@@ -39,7 +47,8 @@ fn clear_tlb() {
 pub extern "C" fn main() -> ! {
     // Update our MMIO address to use higher half
     // TODO: Dehardcode this
-    MMIO.lock().set_base(0xFFFF008002000000);
+    UART.lock().update_mmio_base(0xFFFF008002000000);
+    MAILBOX.lock().update_mmio_base(0xFFFF008002000000);
 
     // Unmap our identity mapping
     // TODO: Dehardcode max mem size

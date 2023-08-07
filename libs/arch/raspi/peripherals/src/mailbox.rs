@@ -2,21 +2,28 @@ use core::{hint, intrinsics::size_of};
 
 use bitfield::{Bit, BitRangeMut};
 
-use crate::{
-    mmio::{mmio_read, mmio_write},
-    MMIO,
-};
+use crate::{mmio_read, mmio_write};
 
-pub const RESP_SUCCESS: u32 = 0x80000000;
-pub const RESP_FAIL: u32 = 0x80000001;
-const MBOX_FULL_BIT: usize = 31;
-const MBOX_EMPTY_BIT: usize = 30;
-
-pub struct Mailbox {}
+pub struct Mailbox {
+    mmio_base: u64,
+}
 
 impl Mailbox {
-    pub fn new() -> Self {
-        Mailbox {}
+    pub const MB_BASE_OFFSET: u64 = 0xB880;
+    pub const MB_STATUS_OFFSET: u64 = Mailbox::MB_BASE_OFFSET + 0x18;
+    pub const MB_RW_OFFSET: u64 = Mailbox::MB_BASE_OFFSET + 0x20;
+
+    pub const RESP_SUCCESS: u32 = 0x80000000;
+    pub const RESP_FAIL: u32 = 0x80000001;
+    const MBOX_FULL_BIT: usize = 31;
+    const MBOX_EMPTY_BIT: usize = 30;
+
+    pub fn new(mmio_base: u64) -> Self {
+        Mailbox { mmio_base }
+    }
+
+    pub fn update_mmio_base(&mut self, mmio_base: u64) {
+        self.mmio_base = mmio_base;
     }
 
     /// Sends a message to the Raspberry Pi Mailbox, blocking until the message is processed
@@ -33,23 +40,22 @@ impl Mailbox {
         // above 4GiB? For now, just assert that the given address will fit
         assert!((msg_ptr as u64) < 0x100000000);
         assert!(msg_ptr.is_aligned_to(16));
-        let mmio_lock = MMIO.lock();
 
         // Last 4 bits must be set to channel num
         let mut register_data = msg_ptr as u32;
         register_data.set_bit_range(3, 0, 8);
 
         // Blocking request...
-        while mmio_read(mmio_lock.mbox_status).bit(MBOX_FULL_BIT) {
+        while mmio_read(self.mmio_base + Mailbox::MB_STATUS_OFFSET).bit(Mailbox::MBOX_FULL_BIT) {
             hint::spin_loop();
         }
 
-        mmio_write(mmio_lock.mbox_wr, register_data);
+        mmio_write(self.mmio_base + Mailbox::MB_RW_OFFSET, register_data);
 
         // Wait until we've received a response...
         // TODO: Note that when we become multithreaded this might cause problems, as
         // we might get the "wrong" message back
-        while mmio_read(mmio_lock.mbox_status).bit(MBOX_EMPTY_BIT) {
+        while mmio_read(self.mmio_base + Mailbox::MB_STATUS_OFFSET).bit(Mailbox::MBOX_EMPTY_BIT) {
             hint::spin_loop();
         }
     }

@@ -2,18 +2,19 @@
 #![feature(core_intrinsics)]
 #![no_std]
 
-use generic_once_cell::Lazy;
-use mailbox::Mailbox;
-use mmio::Mmio;
-use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
-use uart::Uart;
+pub const PERIPHERALS_PHYS_BASE: u64 = 0xFC000000;
+pub const PERIPHERALS_PHYS_END: u64 = 0x100000000;
+//pub const MMIO_PHYS_BASE: u64 = 0x3F000000; // Raspi3
+pub const MMIO_PHYS_BASE: u64 = 0xFE000000; // Raspi4
+
+fn mmio_read(reg: u64) -> u32 {
+    unsafe { core::intrinsics::volatile_load(reg as *const u32) }
+}
+
+fn mmio_write(reg: u64, val: u32) {
+    unsafe { core::intrinsics::volatile_store(reg as *mut u32, val) }
+}
 
 #[allow(dead_code)]
 pub mod mailbox;
-pub mod mmio;
 pub mod uart;
-
-pub static MMIO: Lazy<RawSpinlock, Spinlock<Mmio>> = Lazy::new(|| Spinlock::new(Mmio::new()));
-pub static UART: Lazy<RawSpinlock, Spinlock<Uart>> = Lazy::new(|| Spinlock::new(Uart::new()));
-pub static MAILBOX: Lazy<RawSpinlock, Spinlock<Mailbox>> =
-    Lazy::new(|| Spinlock::new(Mailbox::new()));
