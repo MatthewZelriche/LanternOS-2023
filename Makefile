@@ -1,5 +1,7 @@
 
 QEMU_PATH=
+DTB_RASPI4=vendor/bcm2711-rpi-4-b.dtb
+DTB_RASPI3=vendor/bcm2710-rpi-3-b.dtb
 
 .PHONY: clean kernel kernel-dbg qemu
 
@@ -17,8 +19,11 @@ kernel-dbg:
 	cargo build --bin bootloader-raspi --target aarch64-unknown-none
 	cargo objcopy --bin bootloader-raspi --target aarch64-unknown-none -- -O binary out/kernel8.img
 
-qemu: kernel-dbg
-	$(QEMU_PATH)qemu-system-aarch64 -M raspi4b4g -kernel out/kernel8.img -serial stdio
+qemu: kernel
+	$(QEMU_PATH)qemu-system-aarch64 -M raspi4b4g -kernel out/kernel8.img -serial stdio -dtb $(DTB_RASPI4)
+
+qemu-raspi3: kernel
+	$(QEMU_PATH)qemu-system-aarch64 -M raspi3b -kernel out/kernel8.img -serial stdio -dtb $(DTB_RASPI3)
 
 clean:
 	cargo clean

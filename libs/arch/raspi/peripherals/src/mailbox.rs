@@ -2,7 +2,7 @@ use core::{hint, intrinsics::size_of};
 
 use bitfield::{Bit, BitRangeMut};
 
-use crate::{mmio_read, mmio_write};
+use crate::{get_default_mmio_base, mmio_read, mmio_write};
 
 pub struct Mailbox {
     mmio_base: u64,
@@ -18,8 +18,10 @@ impl Mailbox {
     const MBOX_FULL_BIT: usize = 31;
     const MBOX_EMPTY_BIT: usize = 30;
 
-    pub fn new(mmio_base: u64) -> Self {
-        Mailbox { mmio_base }
+    pub fn new() -> Self {
+        Mailbox {
+            mmio_base: get_default_mmio_base(),
+        }
     }
 
     pub fn update_mmio_base(&mut self, mmio_base: u64) {

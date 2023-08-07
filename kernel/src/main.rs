@@ -6,14 +6,13 @@ use core::{arch::asm, panic::PanicInfo};
 use generic_once_cell::Lazy;
 use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
 use raspi_paging::PageTableRoot;
-use raspi_peripherals::{mailbox::Mailbox, uart::Uart};
+use raspi_peripherals::{get_mmio_offset_from_peripheral_base, mailbox::Mailbox, uart::Uart};
 
 // We set mmio base to a constant, but immediately update it to the correct
 // virtual address in kmain()
-pub static UART: Lazy<RawSpinlock, Spinlock<Uart>> =
-    Lazy::new(|| Spinlock::new(Uart::new(raspi_peripherals::MMIO_PHYS_BASE)));
+pub static UART: Lazy<RawSpinlock, Spinlock<Uart>> = Lazy::new(|| Spinlock::new(Uart::new()));
 pub static MAILBOX: Lazy<RawSpinlock, Spinlock<Mailbox>> =
-    Lazy::new(|| Spinlock::new(Mailbox::new(raspi_peripherals::MMIO_PHYS_BASE)));
+    Lazy::new(|| Spinlock::new(Mailbox::new()));
 
 #[macro_export]
 macro_rules! kprint {
@@ -47,8 +46,11 @@ fn clear_tlb() {
 pub extern "C" fn main() -> ! {
     // Update our MMIO address to use higher half
     // TODO: Dehardcode this
-    UART.lock().update_mmio_base(0xFFFF008002000000);
-    MAILBOX.lock().update_mmio_base(0xFFFF008002000000);
+    UART.lock()
+        .update_mmio_base(0xFFFF008000000000 + get_mmio_offset_from_peripheral_base());
+    MAILBOX
+        .lock()
+        .update_mmio_base(0xFFFF008000000000 + get_mmio_offset_from_peripheral_base());
 
     // Unmap our identity mapping
     // TODO: Dehardcode max mem size

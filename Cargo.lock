@@ -187,9 +187,11 @@ dependencies = [
 name = "raspi-peripherals"
 version = "0.1.0"
 dependencies = [
+ "aarch64-cpu",
  "bitfield",
  "generic_once_cell",
  "raspi-concurrency",
+ "tock-registers",
 ]
 
 [[package]]

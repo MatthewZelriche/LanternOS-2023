@@ -10,3 +10,5 @@ crate-type = ["staticlib"]
 raspi-concurrency = { path = "../concurrency" }
 generic_once_cell = "0.1.1"
 bitfield = "0.14.0"
+tock-registers = "0.8.1"
+aarch64-cpu = "9.3.1"

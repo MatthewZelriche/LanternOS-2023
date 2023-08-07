@@ -31,9 +31,9 @@ use crate::{
 };
 
 pub static UART: Lazy<RawSpinlock, Spinlock<Uart>> =
-    Lazy::new(|| Spinlock::new(Uart::new(raspi_peripherals::MMIO_PHYS_BASE)));
+    Lazy::new(|| Spinlock::new(Uart::new()));
 pub static MAILBOX: Lazy<RawSpinlock, Spinlock<Mailbox>> =
-    Lazy::new(|| Spinlock::new(Mailbox::new(raspi_peripherals::MMIO_PHYS_BASE)));
+    Lazy::new(|| Spinlock::new(Mailbox::new()));
 
 // TODO: Find a way to handle automatically setting this to page size
 #[repr(align(0x1000))]

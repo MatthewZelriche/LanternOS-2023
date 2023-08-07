@@ -16,8 +16,8 @@ extern "C" {
 
 use crate::{mem_size::MemSize, page_size, MAILBOX};
 use raspi_peripherals::{
+    get_board_peripheral_range,
     mailbox::{GetGpuMemory, Mailbox, Message},
-    PERIPHERALS_PHYS_BASE, PERIPHERALS_PHYS_END,
 };
 
 pub fn get_page_addr(addr: u64) -> u64 {
@@ -239,11 +239,12 @@ impl MemoryMap {
         })?;
 
         // Reserve the region for MMIO
-        let size = PERIPHERALS_PHYS_END - PERIPHERALS_PHYS_BASE;
+        let (peripherals_phys_base, peripherals_phys_end) = get_board_peripheral_range();
+        let size = peripherals_phys_end - peripherals_phys_base;
         map.add_entry(MemoryMapEntry {
-            base_addr: PERIPHERALS_PHYS_BASE,
+            base_addr: peripherals_phys_base,
             size: MemSize { bytes: size },
-            end_addr: PERIPHERALS_PHYS_END,
+            end_addr: peripherals_phys_end,
             entry_type: EntryType::Mmio,
         })?;
 

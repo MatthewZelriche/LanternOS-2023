@@ -1,4 +1,4 @@
-use crate::{mmio_read, mmio_write};
+use crate::{get_default_mmio_base, mmio_read, mmio_write};
 use bitfield::{Bit, BitMut};
 use core::{fmt::Write, hint};
 
@@ -17,8 +17,10 @@ impl Uart {
     pub const UART0_LCR_H_OFFSET: u64 = Uart::UART0_BASE_OFFSET + 0x2c;
     pub const UART0_CR_OFFSET: u64 = Uart::UART0_BASE_OFFSET + 0x30;
 
-    pub fn new(mmio_base: u64) -> Self {
-        let mut instance = Uart { mmio_base };
+    pub fn new() -> Self {
+        let mut instance = Uart {
+            mmio_base: get_default_mmio_base(),
+        };
         // Unwrap here since it would be fatal for this initialization to fail
         // before we have a functional way of outputting text
         // TODO: May be able to change this once we get framebuffer working
