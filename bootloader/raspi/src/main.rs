@@ -20,7 +20,7 @@ use generic_once_cell::Lazy;
 use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
 use raspi_memory::{
     page_frame_allocator::PageFrameAllocator,
-    page_table::{MemType, PageTableRoot, VirtualAddr},
+    page_table::{PageTable, VirtualAddr, MemoryType},
 };
 use raspi_peripherals::{
     mailbox::{Mailbox, Message, SetClockRate},
@@ -135,14 +135,14 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     );
 
     println!("Enabling MMU...");
-    let mut page_table: PageTableRoot;
-    let mut ttbr1 = PageTableRoot::new(page_size(), FRAME_ALLOCATOR.lock().deref_mut());
+    let mut page_table: PageTable;
+    let mut ttbr1 = PageTable::new(page_size(), FRAME_ALLOCATOR.lock().deref_mut());
     // Identity map all of physical memory as 1GiB huge pages
-    page_table = PageTableRoot::new(page_size(), FRAME_ALLOCATOR.lock().deref_mut());
+    page_table = PageTable::new(page_size(), FRAME_ALLOCATOR.lock().deref_mut());
     let max_addr = map.get_total_mem().to_bytes();
     for page in (0..max_addr).step_by(0x40000000) {
         page_table
-            .map_1gib_page(page, FRAME_ALLOCATOR.lock().deref_mut())
+            .map_1gib_page(page, VirtualAddr(page), MemoryType::DEVICE, FRAME_ALLOCATOR.lock().deref_mut())
             .expect("Failed to Identity map full physical memory");
     }
 
@@ -162,7 +162,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
             .map_page(
                 phys_page,
                 VirtualAddr(kernel_virt_start + offset),
-                MemType::NORMAL_CACHEABLE,
+                MemoryType::NORMAL_CACHEABLE,
                 FRAME_ALLOCATOR.lock().deref_mut(),
             )
             .expect("Failed to virtually map kernel");
@@ -182,7 +182,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
             .map_page(
                 phys_page,
                 VirtualAddr(stack_virt_start + offset),
-                MemType::NORMAL_CACHEABLE,
+                MemoryType::NORMAL_CACHEABLE,
                 FRAME_ALLOCATOR.lock().deref_mut(),
             )
             .expect("Failed to virtually map stack");
@@ -203,7 +203,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
             .map_page(
                 phys_page,
                 VirtualAddr(mmio_start + offset),
-                MemType::DEVICE,
+                MemoryType::DEVICE,
                 FRAME_ALLOCATOR.lock().deref_mut(),
             )
             .expect("Failed to remap MMIO to higher half!");

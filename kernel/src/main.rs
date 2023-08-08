@@ -9,7 +9,7 @@ use crate::{
     util::page_size,
 };
 
-use raspi_memory::page_table::PageTableRoot;
+use raspi_memory::page_table::{Lvl0TableDescriptor, PageTable, VirtualAddr};
 use raspi_peripherals::get_mmio_offset_from_peripheral_base;
 
 /*
@@ -28,10 +28,14 @@ pub extern "C" fn main() -> ! {
 
     // Unmap our identity mapping
     // TODO: Dehardcode max mem size
-    let mut ttbr0 =
-        PageTableRoot::from_ptr(aarch64_cpu::registers::TTBR0_EL1.get_baddr(), page_size());
+    let mut ttbr0 = unsafe {
+        PageTable::from_raw(
+            aarch64_cpu::registers::TTBR0_EL1.get_baddr() as *mut Lvl0TableDescriptor,
+            page_size(),
+        )
+    };
     for page in (0..0x100000000u64).step_by(0x40000000) {
-        ttbr0.unmap_1gib_page(page);
+        ttbr0.unmap_1gib_page(VirtualAddr(page));
     }
     util::clear_tlb();
 
