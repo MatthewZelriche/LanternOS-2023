@@ -8,7 +8,8 @@ use crate::{
     peripherals::{MAILBOX, UART},
     util::page_size,
 };
-use raspi_paging::PageTableRoot;
+
+use raspi_memory::page_table::PageTableRoot;
 use raspi_peripherals::get_mmio_offset_from_peripheral_base;
 
 /*

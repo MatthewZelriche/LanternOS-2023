@@ -1,8 +1,8 @@
-#![no_std]
-#![feature(pointer_is_aligned)]
 use core::{mem::size_of, slice::from_raw_parts_mut};
 
 use bitfield::{bitfield, BitRange};
+
+use crate::page_frame_allocator::PageFrameAllocator;
 
 #[derive(PartialEq, Clone, Copy)]
 pub struct MemType(u8);
@@ -30,7 +30,7 @@ impl PageTableRoot<'_> {
         }
     }
 
-    pub fn new<T: FrameAlloc>(page_size: u64, alloc: &mut T) -> Self {
+    pub fn new(page_size: u64, alloc: &mut PageFrameAllocator) -> Self {
         // Allocate a single page for the Level 0 table
         let page = PageTableRoot::new_table_mem(page_size, alloc) as *mut Lvl0TableDescriptor;
         unsafe {
@@ -82,7 +82,7 @@ impl PageTableRoot<'_> {
         lvl1_table[virt_addr.lvl1_idx() as usize] = Lvl1BlockDescriptor(0);
     }
 
-    pub fn map_1gib_page<T: FrameAlloc>(&mut self, phys: u64, alloc: &mut T) -> Result<(), ()> {
+    pub fn map_1gib_page(&mut self, phys: u64, alloc: &mut PageFrameAllocator) -> Result<(), ()> {
         assert!((phys as *mut u64).is_aligned_to(0x40000000));
 
         let virt_addr = VirtualAddr(phys);
@@ -118,11 +118,11 @@ impl PageTableRoot<'_> {
         }
     }
 
-    pub fn map_2mib_page<T: FrameAlloc>(
+    pub fn map_2mib_page(
         &mut self,
         phys: u64,
         virt_addr: VirtualAddr,
-        alloc: &mut T,
+        alloc: &mut PageFrameAllocator,
     ) -> Result<(), ()> {
         assert!((virt_addr.0 as *mut u64).is_aligned_to(0x200000));
 
@@ -172,12 +172,12 @@ impl PageTableRoot<'_> {
     }
 
     // Identity Map a single page for 4kib granularity
-    pub fn map_page<T: FrameAlloc>(
+    pub fn map_page(
         &mut self,
         phys: u64,
         virt_addr: VirtualAddr,
         mem_type: MemType,
-        alloc: &mut T,
+        alloc: &mut PageFrameAllocator,
     ) -> Result<(), ()> {
         assert!((phys as *mut u64).is_aligned_to(0x1000));
 
@@ -240,7 +240,7 @@ impl PageTableRoot<'_> {
         Ok(())
     }
 
-    fn new_table_mem<T: FrameAlloc>(sz: u64, allocator: &mut T) -> *mut u64 {
+    fn new_table_mem(sz: u64, allocator: &mut PageFrameAllocator) -> *mut u64 {
         //let addr = FRAME_ALLOCATOR.lock().alloc_page();
         let addr = allocator.alloc_frame();
         unsafe {

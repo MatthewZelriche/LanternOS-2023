@@ -45,9 +45,8 @@ dependencies = [
  "elf-parse",
  "fdt-rs",
  "generic_once_cell",
- "page-frame-allocator",
  "raspi-concurrency",
- "raspi-paging",
+ "raspi-memory",
  "raspi-peripherals",
  "tock-registers",
 ]
@@ -101,9 +100,8 @@ dependencies = [
  "arrayvec",
  "fdt-rs",
  "generic_once_cell",
- "page-frame-allocator",
  "raspi-concurrency",
- "raspi-paging",
+ "raspi-memory",
  "raspi-peripherals",
  "tock-registers",
 ]
@@ -148,10 +146,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "page-frame-allocator"
-version = "0.1.0"
-
-[[package]]
 name = "proc-macro2"
 version = "1.0.66"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -177,7 +171,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "raspi-paging"
+name = "raspi-memory"
 version = "0.1.0"
 dependencies = [
  "bitfield",

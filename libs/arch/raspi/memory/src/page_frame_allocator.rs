@@ -1,5 +1,3 @@
-#![no_std]
-
 use core::ptr;
 
 /// A physical page frame allocator implemented using a simple linked freelist.

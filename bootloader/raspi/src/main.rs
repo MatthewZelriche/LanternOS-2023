@@ -17,9 +17,11 @@ use core::{
 use align_data::include_aligned;
 use elf_parse::{ElfFile, MachineType};
 use generic_once_cell::Lazy;
-use page_frame_allocator::PageFrameAllocator;
 use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
-use raspi_paging::{FrameAlloc, MemType, PageTableRoot, VirtualAddr};
+use raspi_memory::{
+    page_frame_allocator::PageFrameAllocator,
+    page_table::{MemType, PageTableRoot, VirtualAddr},
+};
 use raspi_peripherals::{
     mailbox::{Mailbox, Message, SetClockRate},
     uart::Uart,
@@ -63,19 +65,8 @@ macro_rules! println {
     };
 }
 
-pub struct PageFrameAllocatorNewtype(PageFrameAllocator);
-impl FrameAlloc for PageFrameAllocatorNewtype {
-    fn alloc_frame(&mut self) -> *mut u8 {
-        self.0.alloc_frame() as *mut u8
-    }
-}
-
-pub static FRAME_ALLOCATOR: Lazy<RawSpinlock, Spinlock<PageFrameAllocatorNewtype>> =
-    Lazy::new(|| {
-        Spinlock::new(PageFrameAllocatorNewtype(PageFrameAllocator::new(
-            page_size(),
-        )))
-    });
+pub static FRAME_ALLOCATOR: Lazy<RawSpinlock, Spinlock<PageFrameAllocator>> =
+    Lazy::new(|| Spinlock::new(PageFrameAllocator::new(page_size())));
 
 #[no_mangle]
 pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
@@ -132,7 +123,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
             EntryType::Free => {
                 for addr in (entry.base_addr..entry.end_addr).step_by(page_size() as usize) {
                     // If we fail to add a page to the free list, just silently ignore
-                    let _ = FRAME_ALLOCATOR.lock().0.free_frame(addr as *mut u64);
+                    let _ = FRAME_ALLOCATOR.lock().free_frame(addr as *mut u64);
                 }
             }
             _ => (),
@@ -140,7 +131,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     }
     println!(
         "Successfully initialized page frame allocator with {} free frames.",
-        FRAME_ALLOCATOR.lock().0.num_free_frames()
+        FRAME_ALLOCATOR.lock().num_free_frames()
     );
 
     println!("Enabling MMU...");
@@ -170,7 +161,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
         ttbr1
             .map_page(
                 phys_page,
-                raspi_paging::VirtualAddr(kernel_virt_start + offset),
+                VirtualAddr(kernel_virt_start + offset),
                 MemType::NORMAL_CACHEABLE,
                 FRAME_ALLOCATOR.lock().deref_mut(),
             )
