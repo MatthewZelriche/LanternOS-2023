@@ -1,6 +1,6 @@
-use crate::page_frame_allocator::PageFrameAllocator;
+use alloc::alloc::alloc;
 use bitfield::{bitfield, BitRange};
-use core::{mem::size_of, slice::from_raw_parts_mut};
+use core::{alloc::Layout, slice::from_raw_parts_mut};
 
 const GIB: u64 = 0x40000000;
 const MIB: u64 = 0x100000;
@@ -42,9 +42,9 @@ impl PageTable<'_> {
     /// Constructs a new, empty page table.
     ///
     /// All page tables allocate memory for the lvl0 table, even if they are empty and contain no mappings.
-    pub fn new(page_size: u64, alloc: &mut PageFrameAllocator) -> Self {
+    pub fn new(page_size: u64) -> Self {
         // Allocate a single page for the Level 0 table
-        let page = PageTable::new_table_mem(page_size, alloc) as *mut Lvl0TableDescriptor;
+        let page = PageTable::new_table_mem(page_size) as *mut Lvl0TableDescriptor;
         unsafe {
             PageTable {
                 lvl0_table: from_raw_parts_mut(page, 512),
@@ -144,7 +144,6 @@ impl PageTable<'_> {
         phys_addr: u64,
         virt_addr: VirtualAddr,
         memory_type: MemoryType,
-        alloc: &mut PageFrameAllocator,
     ) -> Result<(), ()> {
         if phys_addr % GIB != 0 || virt_addr.0 % GIB != 0 {
             return Err(());
@@ -155,7 +154,7 @@ impl PageTable<'_> {
         if !lvl0_descriptor.valid() {
             // We need to allocate a Lvl1 table to store in this descriptor, then we need
             // to initialize this descriptor
-            let table_addr = PageTable::new_table_mem(self.page_size, alloc) as u64;
+            let table_addr = PageTable::new_table_mem(self.page_size) as u64;
             lvl0_descriptor.set_valid(true);
             lvl0_descriptor.set_is_table(true);
             lvl0_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -188,7 +187,6 @@ impl PageTable<'_> {
         phys_addr: u64,
         virt_addr: VirtualAddr,
         memory_type: MemoryType,
-        alloc: &mut PageFrameAllocator,
     ) -> Result<(), ()> {
         if phys_addr % (2 * MIB) != 0 || virt_addr.0 % (2 * MIB) != 0 {
             return Err(());
@@ -199,7 +197,7 @@ impl PageTable<'_> {
         if !lvl0_descriptor.valid() {
             // We need to allocate a Lvl1 table to store in this descriptor, then we need
             // to initialize this descriptor
-            let table_addr = PageTable::new_table_mem(self.page_size, alloc) as u64;
+            let table_addr = PageTable::new_table_mem(self.page_size) as u64;
             lvl0_descriptor.set_valid(true);
             lvl0_descriptor.set_is_table(true);
             lvl0_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -210,7 +208,7 @@ impl PageTable<'_> {
         let lvl1_descriptor = &mut lvl1_table[virt_addr.lvl1_idx() as usize];
         if !lvl1_descriptor.valid() {
             // We need to allocate a new Lvl2 table to store in this descriptor
-            let table_addr = PageTable::new_table_mem(self.page_size, alloc) as u64;
+            let table_addr = PageTable::new_table_mem(self.page_size) as u64;
             lvl1_descriptor.set_valid(true);
             lvl1_descriptor.set_is_table(true);
             lvl1_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -243,7 +241,6 @@ impl PageTable<'_> {
         phys_addr: u64,
         virt_addr: VirtualAddr,
         mem_type: MemoryType,
-        alloc: &mut PageFrameAllocator,
     ) -> Result<(), ()> {
         if phys_addr % (4 * KIB) != 0 || virt_addr.0 % (4 * KIB) != 0 {
             return Err(());
@@ -254,7 +251,7 @@ impl PageTable<'_> {
         if !lvl0_descriptor.valid() {
             // We need to allocate a Lvl1 table to store in this descriptor, then we need
             // to initialize this descriptor
-            let table_addr = PageTable::new_table_mem(self.page_size, alloc) as u64;
+            let table_addr = PageTable::new_table_mem(self.page_size) as u64;
             lvl0_descriptor.set_valid(true);
             lvl0_descriptor.set_is_table(true);
             lvl0_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -265,7 +262,7 @@ impl PageTable<'_> {
         let lvl1_descriptor = &mut lvl1_table[virt_addr.lvl1_idx() as usize];
         if !lvl1_descriptor.valid() {
             // We need to allocate a new Lvl2 table to store in this descriptor
-            let table_addr = PageTable::new_table_mem(self.page_size, alloc) as u64;
+            let table_addr = PageTable::new_table_mem(self.page_size) as u64;
             lvl1_descriptor.set_valid(true);
             lvl1_descriptor.set_is_table(true);
             lvl1_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -276,7 +273,7 @@ impl PageTable<'_> {
         let lvl2_descriptor = &mut lvl2_table[virt_addr.lvl2_idx() as usize];
         if !lvl2_descriptor.valid() {
             // We need to allocate a new Lvl3 table to store in this descriptor
-            let table_addr = PageTable::new_table_mem(self.page_size, alloc) as u64;
+            let table_addr = PageTable::new_table_mem(self.page_size) as u64;
             lvl2_descriptor.set_valid(true);
             lvl2_descriptor.set_is_table(true);
             lvl2_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -296,12 +293,12 @@ impl PageTable<'_> {
     }
 
     /// Allocates a single physical frame to store a new table
-    fn new_table_mem(sz: u64, allocator: &mut PageFrameAllocator) -> *mut u64 {
-        let addr = allocator.alloc_frame();
+    fn new_table_mem(sz: u64) -> *mut u64 {
+        let addr = unsafe { alloc(Layout::new::<[u64; 512]>().align_to(sz as usize).unwrap()) };
         // Zeroing out the entire table. Sound because its aligned on page table boundary
         // and the write doesn't exceed the size of the page
         unsafe {
-            core::ptr::write_bytes(addr, 0, (sz as usize) / size_of::<u64>());
+            core::ptr::write_bytes(addr, 0, 512);
         }
         addr as *mut u64
     }

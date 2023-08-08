@@ -101,7 +101,6 @@ dependencies = [
  "fdt-rs",
  "generic_once_cell",
  "raspi-concurrency",
- "raspi-memory",
  "raspi-peripherals",
  "tock-registers",
 ]

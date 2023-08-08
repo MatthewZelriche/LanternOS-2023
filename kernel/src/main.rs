@@ -4,12 +4,8 @@
 pub mod peripherals;
 pub mod util;
 
-use crate::{
-    peripherals::{MAILBOX, UART},
-    util::page_size,
-};
+use crate::peripherals::{MAILBOX, UART};
 
-use raspi_memory::page_table::{Lvl0TableDescriptor, PageTable, VirtualAddr};
 use raspi_peripherals::get_mmio_offset_from_peripheral_base;
 
 /*
@@ -26,6 +22,7 @@ pub extern "C" fn main() -> ! {
         .lock()
         .update_mmio_base(0xFFFF008000000000 + get_mmio_offset_from_peripheral_base());
 
+    /*
     // Unmap our identity mapping
     // TODO: Dehardcode max mem size
     let mut ttbr0 = unsafe {
@@ -38,6 +35,7 @@ pub extern "C" fn main() -> ! {
         ttbr0.unmap_1gib_page(VirtualAddr(page));
     }
     util::clear_tlb();
+    */
 
     kprint!("Hello from kernel main");
 

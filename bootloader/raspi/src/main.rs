@@ -2,6 +2,8 @@
 #![no_main]
 #![feature(int_roundings)]
 
+extern crate alloc;
+
 mod init_mmu;
 mod mem_size;
 mod memory_map;
@@ -9,9 +11,8 @@ mod memory_map;
 use crate::init_mmu::init_mmu;
 use core::{
     arch::{asm, global_asm},
-    ops::DerefMut,
     panic::PanicInfo,
-    slice::{from_raw_parts, from_raw_parts_mut},
+    slice::{from_raw_parts, from_raw_parts_mut}, alloc::GlobalAlloc,
 };
 
 use align_data::include_aligned;
@@ -41,6 +42,29 @@ pub static MAILBOX: Lazy<RawSpinlock, Spinlock<Mailbox>> =
 struct AlignPage;
 static KERNEL: &[u8] = include_aligned!(AlignPage, "../../../out/lantern-os.elf");
 
+struct PageFrameAllocatorNewtype(Lazy<RawSpinlock, Spinlock<PageFrameAllocator>>);
+
+unsafe impl GlobalAlloc for PageFrameAllocatorNewtype {
+    unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
+        if layout.align() > page_size() as usize || layout.size() > page_size() as usize {
+            return core::ptr::null_mut();
+        }
+
+        self.0.lock().alloc_frame() as *mut u8
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: core::alloc::Layout) {
+        if layout.align() > page_size() as usize || layout.size() > page_size() as usize {
+            panic!("Cannot dealloc this memory block");
+        }
+
+        self.0.lock().free_frame(ptr as *mut u64).expect("Failed to free frame");
+    }
+}
+
+#[global_allocator]
+static FRAME_ALLOCATOR: PageFrameAllocatorNewtype = PageFrameAllocatorNewtype(Lazy::new(|| Spinlock::new(PageFrameAllocator::new(page_size()))));
+
 // Loads our entry point, _start, written entirely in assembly
 global_asm!(include_str!("start.S"));
 
@@ -64,9 +88,6 @@ macro_rules! println {
         }
     };
 }
-
-pub static FRAME_ALLOCATOR: Lazy<RawSpinlock, Spinlock<PageFrameAllocator>> =
-    Lazy::new(|| Spinlock::new(PageFrameAllocator::new(page_size())));
 
 #[no_mangle]
 pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
@@ -123,7 +144,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
             EntryType::Free => {
                 for addr in (entry.base_addr..entry.end_addr).step_by(page_size() as usize) {
                     // If we fail to add a page to the free list, just silently ignore
-                    let _ = FRAME_ALLOCATOR.lock().free_frame(addr as *mut u64);
+                    let _ = FRAME_ALLOCATOR.0.lock().free_frame(addr as *mut u64);
                 }
             }
             _ => (),
@@ -131,18 +152,18 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     }
     println!(
         "Successfully initialized page frame allocator with {} free frames.",
-        FRAME_ALLOCATOR.lock().num_free_frames()
+        FRAME_ALLOCATOR.0.lock().num_free_frames()
     );
 
     println!("Enabling MMU...");
     let mut page_table: PageTable;
-    let mut ttbr1 = PageTable::new(page_size(), FRAME_ALLOCATOR.lock().deref_mut());
+    let mut ttbr1 = PageTable::new(page_size());
     // Identity map all of physical memory as 1GiB huge pages
-    page_table = PageTable::new(page_size(), FRAME_ALLOCATOR.lock().deref_mut());
+    page_table = PageTable::new(page_size());
     let max_addr = map.get_total_mem().to_bytes();
     for page in (0..max_addr).step_by(0x40000000) {
         page_table
-            .map_1gib_page(page, VirtualAddr(page), MemoryType::DEVICE, FRAME_ALLOCATOR.lock().deref_mut())
+            .map_1gib_page(page, VirtualAddr(page), MemoryType::DEVICE)
             .expect("Failed to Identity map full physical memory");
     }
 
@@ -163,7 +184,6 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
                 phys_page,
                 VirtualAddr(kernel_virt_start + offset),
                 MemoryType::NORMAL_CACHEABLE,
-                FRAME_ALLOCATOR.lock().deref_mut(),
             )
             .expect("Failed to virtually map kernel");
         offset += page_size();
@@ -183,7 +203,6 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
                 phys_page,
                 VirtualAddr(stack_virt_start + offset),
                 MemoryType::NORMAL_CACHEABLE,
-                FRAME_ALLOCATOR.lock().deref_mut(),
             )
             .expect("Failed to virtually map stack");
         offset += page_size();
@@ -204,7 +223,6 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
                 phys_page,
                 VirtualAddr(mmio_start + offset),
                 MemoryType::DEVICE,
-                FRAME_ALLOCATOR.lock().deref_mut(),
             )
             .expect("Failed to remap MMIO to higher half!");
         offset += page_size();
