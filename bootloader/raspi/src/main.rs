@@ -63,8 +63,8 @@ macro_rules! println {
     };
 }
 
-pub struct PageFrameAllocatorNewtype<'a>(PageFrameAllocator<'a>);
-impl FrameAlloc for PageFrameAllocatorNewtype<'_> {
+pub struct PageFrameAllocatorNewtype(PageFrameAllocator);
+impl FrameAlloc for PageFrameAllocatorNewtype {
     fn alloc_frame(&mut self) -> *mut u8 {
         self.0.alloc_page() as *mut u8
     }
