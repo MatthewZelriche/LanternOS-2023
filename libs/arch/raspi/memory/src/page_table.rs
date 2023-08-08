@@ -1,4 +1,4 @@
-use alloc::alloc::alloc;
+use alloc::alloc::{alloc, dealloc};
 use bitfield::{bitfield, BitRange};
 use core::{alloc::Layout, slice::from_raw_parts_mut};
 
@@ -54,9 +54,13 @@ impl PageTable<'_> {
     }
 
     /// Consumes the PageTable, returning the physical address of the lvl0 table in memory
+    ///
+    /// # Safety
+    /// Caller is responsible for freeing the memory associated with this raw pointer. The easiest way
+    /// to do this is to create a new PageTable from this pointer and then let that new PageTable
+    /// be dropped.
     pub unsafe fn into_raw(table: PageTable) -> *mut Lvl0TableDescriptor {
-        // TODO: Perform manual drop
-        table.lvl0_table.as_mut_ptr()
+        core::mem::ManuallyDrop::new(table).as_raw_ptr().cast_mut()
     }
 
     /// Provides access to the underlying raw pointer, for example to store the pointer in a
@@ -292,15 +296,55 @@ impl PageTable<'_> {
         Ok(())
     }
 
+    /// Deallocates a frame allocated by this table
+    fn dealloc_page(addr: *mut u8, sz: u64) {
+        unsafe { dealloc(addr, PageTable::page_layout(sz)) }
+    }
+
     /// Allocates a single physical frame to store a new table
     fn new_table_mem(sz: u64) -> *mut u64 {
-        let addr = unsafe { alloc(Layout::new::<[u64; 512]>().align_to(sz as usize).unwrap()) };
+        let addr = unsafe { alloc(PageTable::page_layout(sz)) };
         // Zeroing out the entire table. Sound because its aligned on page table boundary
         // and the write doesn't exceed the size of the page
         unsafe {
             core::ptr::write_bytes(addr, 0, 512);
         }
         addr as *mut u64
+    }
+
+    fn page_layout(sz: u64) -> Layout {
+        Layout::new::<[u64; 512]>().align_to(sz as usize).unwrap()
+    }
+}
+
+impl Drop for PageTable<'_> {
+    /// Walks the entire allocated page table, freeing each frame
+    fn drop(&mut self) {
+        for lvl0_descriptor in &mut *self.lvl0_table {
+            if lvl0_descriptor.valid() && lvl0_descriptor.is_table() {
+                let lvl1_table_ptr =
+                    (lvl0_descriptor.next_table_addr() << 12) as *mut Lvl1TableDescriptor;
+                let lvl1_table = unsafe { from_raw_parts_mut(lvl1_table_ptr, 512) };
+
+                for lvl1_descriptor in &mut *lvl1_table {
+                    if lvl1_descriptor.valid() && lvl1_descriptor.is_table() {
+                        let lvl2_table_ptr =
+                            (lvl1_descriptor.next_table_addr() << 12) as *mut Lvl2TableDescriptor;
+                        let lvl2_table = unsafe { from_raw_parts_mut(lvl2_table_ptr, 512) };
+
+                        for lvl2_descriptor in &mut *lvl2_table {
+                            let page_table_ptr =
+                                (lvl2_descriptor.next_table_addr() << 12) as *mut PageDescriptor;
+
+                            PageTable::dealloc_page(page_table_ptr as *mut u8, self.page_size);
+                        }
+                        PageTable::dealloc_page(lvl2_table_ptr as *mut u8, self.page_size);
+                    }
+                }
+                PageTable::dealloc_page(lvl1_table_ptr as *mut u8, self.page_size);
+            }
+        }
+        PageTable::dealloc_page(self.lvl0_table.as_ptr() as *mut u8, self.page_size);
     }
 }
 

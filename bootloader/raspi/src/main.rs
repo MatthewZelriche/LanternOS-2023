@@ -237,6 +237,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
         kernel_elf.hdr.entry
     );
     println!("");
+    // TODO: Have to drop stuff because rust cant figure out we done when we move to kmain
 
     let fn_void_ptr = kernel_elf.hdr.entry as *const ();
     unsafe {
