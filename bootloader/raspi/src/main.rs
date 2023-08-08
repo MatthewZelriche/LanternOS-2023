@@ -4,66 +4,43 @@
 
 extern crate alloc;
 
+mod boot_alloc;
 mod init_mmu;
 mod mem_size;
 mod memory_map;
 
+use crate::boot_alloc::FRAME_ALLOCATOR;
 use crate::init_mmu::init_mmu;
+use crate::{
+    mem_size::MemSize,
+    memory_map::{EntryType, MemoryMap, MemoryMapEntry},
+};
+use align_data::include_aligned;
 use core::{
     arch::{asm, global_asm},
     panic::PanicInfo,
-    slice::{from_raw_parts, from_raw_parts_mut}, alloc::GlobalAlloc,
+    slice::{from_raw_parts, from_raw_parts_mut},
 };
-
-use align_data::include_aligned;
 use elf_parse::{ElfFile, MachineType};
 use generic_once_cell::Lazy;
 use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
-use raspi_memory::{
-    page_frame_allocator::PageFrameAllocator,
-    page_table::{PageTable, VirtualAddr, MemoryType},
-};
+use raspi_memory::page_table::{MemoryType, PageTable, VirtualAddr};
 use raspi_peripherals::{
     mailbox::{Mailbox, Message, SetClockRate},
     uart::Uart,
 };
 
-use crate::{
-    mem_size::MemSize,
-    memory_map::{EntryType, MemoryMap, MemoryMapEntry},
-};
-
+// Peripheral singletons
 pub static UART: Lazy<RawSpinlock, Spinlock<Uart>> = Lazy::new(|| Spinlock::new(Uart::new()));
 pub static MAILBOX: Lazy<RawSpinlock, Spinlock<Mailbox>> =
     Lazy::new(|| Spinlock::new(Mailbox::new()));
 
 // TODO: Find a way to handle automatically setting this to page size
+// To avoid having to implement an entire FAT library for the bootloader, we embed the entire
+// ELF file directly into the bootloader
 #[repr(align(0x1000))]
 struct AlignPage;
 static KERNEL: &[u8] = include_aligned!(AlignPage, "../../../out/lantern-os.elf");
-
-struct PageFrameAllocatorNewtype(Lazy<RawSpinlock, Spinlock<PageFrameAllocator>>);
-
-unsafe impl GlobalAlloc for PageFrameAllocatorNewtype {
-    unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
-        if layout.align() > page_size() as usize || layout.size() > page_size() as usize {
-            return core::ptr::null_mut();
-        }
-
-        self.0.lock().alloc_frame() as *mut u8
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: core::alloc::Layout) {
-        if layout.align() > page_size() as usize || layout.size() > page_size() as usize {
-            panic!("Cannot dealloc this memory block");
-        }
-
-        self.0.lock().free_frame(ptr as *mut u64).expect("Failed to free frame");
-    }
-}
-
-#[global_allocator]
-static FRAME_ALLOCATOR: PageFrameAllocatorNewtype = PageFrameAllocatorNewtype(Lazy::new(|| Spinlock::new(PageFrameAllocator::new(page_size()))));
 
 // Loads our entry point, _start, written entirely in assembly
 global_asm!(include_str!("start.S"));
