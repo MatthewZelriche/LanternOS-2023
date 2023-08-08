@@ -66,7 +66,7 @@ macro_rules! println {
 pub struct PageFrameAllocatorNewtype(PageFrameAllocator);
 impl FrameAlloc for PageFrameAllocatorNewtype {
     fn alloc_frame(&mut self) -> *mut u8 {
-        self.0.alloc_page() as *mut u8
+        self.0.alloc_frame() as *mut u8
     }
 }
 
@@ -132,15 +132,15 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
             EntryType::Free => {
                 for addr in (entry.base_addr..entry.end_addr).step_by(page_size() as usize) {
                     // If we fail to add a page to the free list, just silently ignore
-                    let _ = FRAME_ALLOCATOR.lock().0.free_page(addr as *mut u64);
+                    let _ = FRAME_ALLOCATOR.lock().0.free_frame(addr as *mut u64);
                 }
             }
             _ => (),
         }
     }
     println!(
-        "Successfully initialized page frame allocator with {} free pages.",
-        FRAME_ALLOCATOR.lock().0.num_free_pages()
+        "Successfully initialized page frame allocator with {} free frames.",
+        FRAME_ALLOCATOR.lock().0.num_free_frames()
     );
 
     println!("Enabling MMU...");
