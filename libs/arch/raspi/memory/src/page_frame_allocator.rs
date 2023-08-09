@@ -91,6 +91,7 @@ impl PageFrameAllocator {
                 // that a valid node is there to be deferenced
                 let next_node = unsafe { &(*(self.freelist)) }.next;
                 self.freelist = next_node;
+                self.num_free -= 1;
                 frame
             }
         }
