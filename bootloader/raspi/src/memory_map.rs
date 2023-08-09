@@ -31,7 +31,6 @@ pub enum EntryType {
     DtReserved,
     Firmware,
     Bootloader,
-    Stack,
     Kernel,
     Mmio,
 }
@@ -44,7 +43,6 @@ impl EntryType {
             EntryType::Firmware => "Firmware",
             EntryType::Bootloader => "Bootloader",
             EntryType::Mmio => "MMIO",
-            EntryType::Stack => "Stack",
             EntryType::Kernel => "Kernel",
         }
     }
@@ -262,7 +260,7 @@ impl MemoryMap {
             base_addr: stack_start_page_addr,
             size: MemSize { bytes: stack_size },
             end_addr: stack_end_page_addr,
-            entry_type: EntryType::Stack,
+            entry_type: EntryType::Bootloader,
         })?;
 
         // Reserve the bootloader region

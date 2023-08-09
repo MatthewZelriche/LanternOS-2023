@@ -12,6 +12,8 @@ use core::ptr;
 /// linked list is stored across all of free memory. It is the user's responsibility to ensure that pages
 /// stored in the freelist are never written to under any circumstances. It is also a requirement
 /// that the struct always be accessed under some form of mutual exclusion, such as a mutex.
+#[derive(Clone, Copy)]
+#[repr(C)]
 pub struct PageFrameAllocator {
     freelist: *mut Node,
     num_free: u64,

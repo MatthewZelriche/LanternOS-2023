@@ -1,6 +1,6 @@
 INCLUDE common.ld
 
-ENTRY (main)
+ENTRY (kernel_early_init)
 
 SECTIONS
 {

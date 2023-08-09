@@ -16,6 +16,7 @@ use crate::{
     memory_map::{EntryType, MemoryMap, MemoryMapEntry},
 };
 use align_data::include_aligned;
+use core::mem::size_of;
 use core::{
     arch::{asm, global_asm},
     panic::PanicInfo,
@@ -23,7 +24,8 @@ use core::{
 };
 use elf_parse::{ElfFile, MachineType};
 use generic_once_cell::Lazy;
-use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
+use raspi_concurrency::spinlock::{RawSpinlock, Spinlock, SpinlockGuard};
+use raspi_memory::page_frame_allocator::PageFrameAllocator;
 use raspi_memory::page_table::{MemoryType, PageTable, VirtualAddr};
 use raspi_peripherals::{
     mailbox::{Mailbox, Message, SetClockRate},
@@ -54,6 +56,12 @@ pub fn page_size() -> u64 {
 }
 pub fn kernel_virt_start() -> u64 {
     unsafe { (&__KERNEL_VIRT_START as *const u8) as u64 }
+}
+
+#[repr(C)]
+struct InitData {
+    frame_allocator: PageFrameAllocator,
+    mmio_start_addr: u64,
 }
 
 #[macro_export]
@@ -167,23 +175,17 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     }
     // Also map the stack to the higher half
     // TODO: Guard page
-    let stack_region = map
-        .get_entries()
-        .iter()
-        .find(|x| x.entry_type == EntryType::Stack)
-        .expect("Couldn't find kernel stack in memory");
     let stack_virt_start = kernel_virt_start + offset;
+    let stack_phys_start = FRAME_ALLOCATOR.0.lock().alloc_frame() as u64;
     offset = 0;
-    for phys_page in (stack_region.base_addr..stack_region.end_addr).step_by(page_size() as usize) {
-        ttbr1
-            .map_page(
-                phys_page,
-                VirtualAddr(stack_virt_start + offset),
-                MemoryType::NORMAL_CACHEABLE,
-            )
-            .expect("Failed to virtually map stack");
-        offset += page_size();
-    }
+    ttbr1
+        .map_page(
+            stack_phys_start,
+            VirtualAddr(stack_virt_start + offset),
+            MemoryType::NORMAL_CACHEABLE,
+        )
+        .expect("Failed to virtually map stack");
+    offset += page_size();
     let stack_top = stack_virt_start + offset;
 
     // Remap MMIO
@@ -216,12 +218,24 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     println!("");
     // TODO: Have to drop stuff because rust cant figure out we done when we move to kmain
 
+    // Safety: Unsafe to use FRAME_ALLOCATOR or any dynamic memory allocation after this point.
     let fn_void_ptr = kernel_elf.hdr.entry as *const ();
+    let init_data = InitData {
+        frame_allocator: *SpinlockGuard::leak(FRAME_ALLOCATOR.0.lock()),
+        mmio_start_addr: mmio_start,
+    };
+    let mut sp = stack_top;
     unsafe {
-        asm!("mov sp, {stack_top}", 
-        "br {entry_point}", 
-        stack_top = in(reg) stack_top, 
-        entry_point = in(reg) fn_void_ptr);
+        sp -= size_of::<InitData>() as u64;
+        let struct_ptr = sp;
+        core::ptr::write(sp as *mut InitData, init_data);
+
+        asm!("mov sp, {sp}", 
+        "mov x0, {struct_ptr}", 
+        "br {entry}", 
+        sp = in(reg) sp, 
+        struct_ptr = in(reg) struct_ptr, 
+        entry = in(reg) fn_void_ptr);
     }
     loop {}
 }
