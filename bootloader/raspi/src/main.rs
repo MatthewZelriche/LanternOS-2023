@@ -7,7 +7,7 @@ mod init_mmu;
 mod mem_size;
 mod memory_map;
 
-use crate::boot_alloc::{FrameAlloc, FRAME_ALLOCATOR};
+use crate::boot_alloc::{FrameAlloc};
 use crate::init_mmu::init_mmu;
 use crate::{
     mem_size::MemSize,
@@ -20,9 +20,9 @@ use core::{
     slice::{from_raw_parts, from_raw_parts_mut},
 };
 use elf_parse::{ElfFile, MachineType};
-use generic_once_cell::Lazy;
+use generic_once_cell::{Lazy, OnceCell};
 use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
-use raspi_memory::page_table::{MemoryType, PageTable, VirtualAddr};
+use raspi_memory::page_table::{MemoryType, PageTable, VirtualAddr, PageAlloc};
 use raspi_peripherals::{
     mailbox::{Mailbox, Message, SetClockRate},
     uart::Uart,
@@ -64,8 +64,11 @@ macro_rules! println {
     };
 }
 
+static MEM_MAP: OnceCell<RawSpinlock, Spinlock<MemoryMap>> = OnceCell::new();
+
 #[no_mangle]
 pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
+    let mut frame_allocator = FrameAlloc {};
     // Inform the raspi of our desired clock speed for the UART. Necessary for UART to function.
     // Mailbox requires physical address instead of virtual, but we don't have the MMU up yet
     // so it currently doesn't matter.
@@ -74,20 +77,22 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
 
     println!("Raspi bootloader is preparing environment for kernel...");
 
-    // Load the dtb
-    // Panic if we can't load it, for now
-    let mut map = MemoryMap::new(dtb_ptr).expect("Failed to construct memory map");
+    let map_mutex = MEM_MAP.get_or_init(|| {
+        Spinlock::new(MemoryMap::new(dtb_ptr).expect("Failed to construct memory map"))
+    });
 
     // TODO: Not sure why this is necessary...but if I don't reserve the very first page of memory,
     // attempting to write to that region causes cpu faults.
     // Something to do with QEMU? Or the exception vector?
-    map.add_entry(MemoryMapEntry {
-        base_addr: 0,
-        size: MemSize { bytes: 0x1000 },
-        end_addr: 0x1000,
-        entry_type: EntryType::Firmware,
-    })
-    .unwrap();
+    map_mutex
+        .lock()
+        .add_entry(MemoryMapEntry {
+            base_addr: 0,
+            size: MemSize { bytes: 0x1000 },
+            end_addr: 0x1000,
+            entry_type: EntryType::Firmware,
+        })
+        .unwrap();
 
     let kernel_elf = ElfFile::new(KERNEL).expect("Failed to parse kernel ELF");
     if kernel_elf.hdr.machine != MachineType::AARCH64 {
@@ -95,46 +100,32 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     }
     println!("Successfully parsed kernel ELF");
 
-    load_elf(&kernel_elf, &mut map);
+    load_elf(&kernel_elf, map_mutex);
     println!("Loaded Kernel ELF into memory");
 
-    println!("");
-    println!("Page size:       {}", MemSize { bytes: page_size() });
-    println!(
-        "Reserved Pages:  {}",
-        (map.get_total_mem() - map.get_free_mem()) / page_size()
-    );
-    println!(
-        "Available Pages: {}",
-        map.get_free_mem().to_bytes() / page_size()
-    );
-    println!("Total Memory:    {}", map.get_total_mem());
-    println!("Avail Memory:    {}", map.get_free_mem());
-    println!("");
-    println!("{}", map);
-
     println!("Initializing page frame allocator...");
-    for entry in map.get_entries() {
+    for entry in map_mutex.lock().get_entries() {
         match entry.entry_type {
             EntryType::Free => {
                 for addr in (entry.base_addr..entry.end_addr).step_by(page_size() as usize) {
                     // If we fail to add a page to the free list, just silently ignore
-                    let _ = FRAME_ALLOCATOR.lock().free_frame(addr as *mut u64);
+                    let _ = frame_allocator.deallocate_frame(addr as *mut u8);
                 }
             }
             _ => (),
         }
     }
+    let start_free_frames = frame_allocator.num_free_frames();
     println!(
         "Successfully initialized page frame allocator with {} free frames.",
-        FRAME_ALLOCATOR.lock().num_free_frames()
+        start_free_frames
     );
 
     println!("Enabling MMU...");
     let mut ttbr1 = PageTable::new(FrameAlloc {}).expect("Failed to construct page table");
     // Identity map all of physical memory as 1GiB huge pages
     let mut page_table = PageTable::new(FrameAlloc {}).expect("Failed to construct page table");
-    let max_addr = map.get_total_mem().to_bytes();
+    let max_addr = map_mutex.lock().get_total_mem().to_bytes();
     for page in (0..max_addr).step_by(0x40000000) {
         page_table
             .map_1gib_page(page, VirtualAddr(page), MemoryType::DEVICE)
@@ -142,7 +133,8 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     }
 
     // Virtually map kernel memory to higher half with 4KiB pages
-    let kernel_region = map
+    let lock = map_mutex.lock();
+    let kernel_region = lock
         .get_entries()
         .iter()
         .find(|x| x.entry_type == EntryType::Kernel)
@@ -165,10 +157,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     // Also map the stack to the higher half
     // TODO: Guard page
     let stack_virt_start = kernel_virt_start + offset;
-    let stack_phys_start = FRAME_ALLOCATOR
-        .lock()
-        .alloc_frame()
-        .expect("Failed to allocate frame for kernel heap") as u64;
+    let stack_phys_start = frame_allocator.allocate_frame().expect("Failed to allocate frame for kernel stack") as u64;
     offset = 0;
     ttbr1
         .map_page(
@@ -183,7 +172,8 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     // Remap MMIO
     let mmio_start = 0xFFFF008000000000;
     let mut offset = 0;
-    let mmio_segment = map
+    let lock = map_mutex.lock();
+    let mmio_segment = lock
         .get_entries()
         .iter()
         .find(|x| x.entry_type == EntryType::Mmio)
@@ -202,12 +192,35 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     init_mmu(&page_table, &ttbr1);
     println!("Successfully enabled the MMU");
 
+    println!("Printing memory map: ");
+    println!("");
+    println!("Page size:       {}", MemSize { bytes: page_size() });
+    println!(
+        "Reserved Pages:  {}",
+        (map_mutex.lock().get_total_mem() - map_mutex.lock().get_free_mem()) / page_size()
+    );
+    println!(
+        "Available Pages: {}",
+        map_mutex.lock().get_free_mem().to_bytes() / page_size()
+    );
+    println!("Total Memory:    {}", map_mutex.lock().get_total_mem());
+    println!("Avail Memory:    {}", map_mutex.lock().get_free_mem());
+    println!("");
+    println!("{}", map_mutex.lock());
+    let mut bl_reserved_count = 0;
+    for entry in map_mutex.lock().get_entries().iter().filter(|x| x.entry_type == EntryType::BLReserved) {
+        bl_reserved_count += entry.size.bytes;
+    }
+    println!("Bootloader allocated {} pages of memory in total", bl_reserved_count / page_size());
+    let final_allocated_pages = start_free_frames - frame_allocator.num_free_frames();
+    // Sanity check to ensure our memory map was updated correctly
+    assert!((bl_reserved_count / page_size()) == final_allocated_pages);
+
     // Transfer control to the kernel
     println!(
         "Transferring control to kernel entry point {:#x}",
         kernel_elf.hdr.entry
     );
-    println!("");
     // TODO: Have to drop stuff because rust cant figure out we done when we move to kmain
 
     // Safety: Unsafe to use FRAME_ALLOCATOR or any dynamic memory allocation after this point.
@@ -223,7 +236,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     loop {}
 }
 
-fn load_elf(kernel_elf: &ElfFile, map: &mut MemoryMap) {
+fn load_elf(kernel_elf: &ElfFile, map: &Spinlock<MemoryMap>) {
     // TODO: Less hacky way of loading
     // Copy kernel into memory
     // TODO: Add this to memory map
@@ -239,6 +252,7 @@ fn load_elf(kernel_elf: &ElfFile, map: &mut MemoryMap) {
     kernel_memsz = kernel_memsz.next_multiple_of(page_size());
     // Find a contiguous region in physical memory to store the segment
     let region = map
+        .lock()
         .get_entries()
         .iter()
         .find(|x| x.size.bytes >= kernel_memsz && x.entry_type == EntryType::Free)
@@ -285,15 +299,16 @@ fn load_elf(kernel_elf: &ElfFile, map: &mut MemoryMap) {
     }
 
     // Add this kernel region to the memory map
-    map.add_entry(MemoryMapEntry {
-        base_addr: region.base_addr,
-        size: MemSize {
-            bytes: kernel_memsz,
-        },
-        end_addr: region.base_addr + kernel_memsz,
-        entry_type: memory_map::EntryType::Kernel,
-    })
-    .expect("Failed to install kernel data into memory map");
+    map.lock()
+        .add_entry(MemoryMapEntry {
+            base_addr: region.base_addr,
+            size: MemSize {
+                bytes: kernel_memsz,
+            },
+            end_addr: region.base_addr + kernel_memsz,
+            entry_type: memory_map::EntryType::Kernel,
+        })
+        .expect("Failed to install kernel data into memory map");
 }
 
 #[panic_handler]

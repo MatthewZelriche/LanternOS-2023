@@ -31,6 +31,7 @@ pub enum EntryType {
     DtReserved,
     Firmware,
     Bootloader,
+    BLReserved,
     Kernel,
     Mmio,
 }
@@ -42,6 +43,7 @@ impl EntryType {
             EntryType::DtReserved => "DeviceTree",
             EntryType::Firmware => "Firmware",
             EntryType::Bootloader => "Bootloader",
+            EntryType::BLReserved => "BLReserved",
             EntryType::Mmio => "MMIO",
             EntryType::Kernel => "Kernel",
         }
@@ -118,6 +120,7 @@ impl Display for MemoryMapEntry {
     }
 }
 
+#[derive(Clone)]
 pub struct MemoryMap {
     // Before we can create a physical page frame allocator, we need a memory map
     // of our physical address space. But we need to determine our memory map at runtime...
