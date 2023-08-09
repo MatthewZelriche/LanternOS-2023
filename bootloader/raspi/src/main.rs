@@ -2,21 +2,18 @@
 #![no_main]
 #![feature(int_roundings)]
 
-extern crate alloc;
-
 mod boot_alloc;
 mod init_mmu;
 mod mem_size;
 mod memory_map;
 
-use crate::boot_alloc::FRAME_ALLOCATOR;
+use crate::boot_alloc::{FrameAlloc, FRAME_ALLOCATOR};
 use crate::init_mmu::init_mmu;
 use crate::{
     mem_size::MemSize,
     memory_map::{EntryType, MemoryMap, MemoryMapEntry},
 };
 use align_data::include_aligned;
-use core::mem::size_of;
 use core::{
     arch::{asm, global_asm},
     panic::PanicInfo,
@@ -24,8 +21,7 @@ use core::{
 };
 use elf_parse::{ElfFile, MachineType};
 use generic_once_cell::Lazy;
-use raspi_concurrency::spinlock::{RawSpinlock, Spinlock, SpinlockGuard};
-use raspi_memory::page_frame_allocator::PageFrameAllocator;
+use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
 use raspi_memory::page_table::{MemoryType, PageTable, VirtualAddr};
 use raspi_peripherals::{
     mailbox::{Mailbox, Message, SetClockRate},
@@ -56,12 +52,6 @@ pub fn page_size() -> u64 {
 }
 pub fn kernel_virt_start() -> u64 {
     unsafe { (&__KERNEL_VIRT_START as *const u8) as u64 }
-}
-
-#[repr(C)]
-struct InitData {
-    frame_allocator: PageFrameAllocator,
-    mmio_start_addr: u64,
 }
 
 #[macro_export]
@@ -129,7 +119,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
             EntryType::Free => {
                 for addr in (entry.base_addr..entry.end_addr).step_by(page_size() as usize) {
                     // If we fail to add a page to the free list, just silently ignore
-                    let _ = FRAME_ALLOCATOR.0.lock().free_frame(addr as *mut u64);
+                    let _ = FRAME_ALLOCATOR.lock().free_frame(addr as *mut u64);
                 }
             }
             _ => (),
@@ -137,14 +127,13 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     }
     println!(
         "Successfully initialized page frame allocator with {} free frames.",
-        FRAME_ALLOCATOR.0.lock().num_free_frames()
+        FRAME_ALLOCATOR.lock().num_free_frames()
     );
 
     println!("Enabling MMU...");
-    let mut page_table: PageTable;
-    let mut ttbr1 = PageTable::new(page_size());
+    let mut ttbr1 = PageTable::new(FrameAlloc {}).expect("Failed to construct page table");
     // Identity map all of physical memory as 1GiB huge pages
-    page_table = PageTable::new(page_size());
+    let mut page_table = PageTable::new(FrameAlloc {}).expect("Failed to construct page table");
     let max_addr = map.get_total_mem().to_bytes();
     for page in (0..max_addr).step_by(0x40000000) {
         page_table
@@ -176,7 +165,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     // Also map the stack to the higher half
     // TODO: Guard page
     let stack_virt_start = kernel_virt_start + offset;
-    let stack_phys_start = FRAME_ALLOCATOR.0.lock().alloc_frame() as u64;
+    let stack_phys_start = FRAME_ALLOCATOR.lock().alloc_frame() as u64;
     offset = 0;
     ttbr1
         .map_page(
@@ -220,21 +209,12 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
 
     // Safety: Unsafe to use FRAME_ALLOCATOR or any dynamic memory allocation after this point.
     let fn_void_ptr = kernel_elf.hdr.entry as *const ();
-    let init_data = InitData {
-        frame_allocator: *SpinlockGuard::leak(FRAME_ALLOCATOR.0.lock()),
-        mmio_start_addr: mmio_start,
-    };
-    let mut sp = stack_top;
     unsafe {
-        sp -= size_of::<InitData>() as u64;
-        let struct_ptr = sp;
-        core::ptr::write(sp as *mut InitData, init_data);
-
-        asm!("mov sp, {sp}", 
-        "mov x0, {struct_ptr}", 
+        asm!("mov sp, {stack}", 
+        "mov x0, {mmio_start}", 
         "br {entry}", 
-        sp = in(reg) sp, 
-        struct_ptr = in(reg) struct_ptr, 
+        stack = in(reg) stack_top, 
+        mmio_start = in(reg) mmio_start,
         entry = in(reg) fn_void_ptr);
     }
     loop {}

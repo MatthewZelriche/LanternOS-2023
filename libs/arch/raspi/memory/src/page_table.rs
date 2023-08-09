@@ -1,6 +1,5 @@
-use alloc::alloc::{alloc, dealloc};
 use bitfield::{bitfield, BitRange};
-use core::{alloc::Layout, slice::from_raw_parts_mut};
+use core::slice::from_raw_parts_mut;
 
 const GIB: u64 = 0x40000000;
 const MIB: u64 = 0x100000;
@@ -19,48 +18,32 @@ impl MemoryType {
     pub const NORMAL_CACHEABLE: MemoryType = MemoryType(1);
 }
 
-/// Represents a single Aarch64 page table, supporting 4KiB granularity.
-pub struct PageTable<'a> {
-    lvl0_table: &'a mut [Lvl0TableDescriptor],
-    page_size: u64,
+pub trait PageAlloc {
+    /// Returns a new, zero-initialized frame of memory.
+    fn allocate_frame(&mut self) -> Result<*mut u8, ()>;
+    /// Frees a frame of memory. Memory must have been allocated with ```allocate_frame```
+    fn deallocate_frame(&mut self, frame: *mut u8);
 }
 
-impl PageTable<'_> {
-    /// Constructs a new page table from a raw pointer to a lvl0 table.
-    ///
-    /// # Safety
-    /// It is only valid to call this function from a ptr that was given by a call to into_raw
-    pub unsafe fn from_raw(ptr: *mut Lvl0TableDescriptor, page_size: u64) -> Self {
-        unsafe {
-            PageTable {
-                lvl0_table: from_raw_parts_mut(ptr as *mut Lvl0TableDescriptor, 512),
-                page_size,
-            }
-        }
-    }
+/// Represents a single Aarch64 page table, supporting 4KiB granularity.
+pub struct PageTable<'a, T: PageAlloc> {
+    allocator: T,
+    lvl0_table: &'a mut [Lvl0TableDescriptor],
+}
 
+impl<T: PageAlloc> PageTable<'_, T> {
     /// Constructs a new, empty page table.
     ///
     /// All page tables allocate memory for the lvl0 table, even if they are empty and contain no mappings.
-    pub fn new(page_size: u64) -> Self {
+    pub fn new(mut allocator: T) -> Result<Self, ()> {
         // Allocate a single page for the Level 0 table
-        let page = PageTable::new_table_mem(page_size) as *mut Lvl0TableDescriptor;
+        let page = allocator.allocate_frame()? as *mut Lvl0TableDescriptor;
         unsafe {
-            PageTable {
+            Ok(PageTable {
+                allocator,
                 lvl0_table: from_raw_parts_mut(page, 512),
-                page_size,
-            }
+            })
         }
-    }
-
-    /// Consumes the PageTable, returning the physical address of the lvl0 table in memory
-    ///
-    /// # Safety
-    /// Caller is responsible for freeing the memory associated with this raw pointer. The easiest way
-    /// to do this is to create a new PageTable from this pointer and then let that new PageTable
-    /// be dropped.
-    pub unsafe fn into_raw(table: PageTable) -> *mut Lvl0TableDescriptor {
-        core::mem::ManuallyDrop::new(table).as_raw_ptr().cast_mut()
     }
 
     /// Provides access to the underlying raw pointer, for example to store the pointer in a
@@ -158,7 +141,7 @@ impl PageTable<'_> {
         if !lvl0_descriptor.valid() {
             // We need to allocate a Lvl1 table to store in this descriptor, then we need
             // to initialize this descriptor
-            let table_addr = PageTable::new_table_mem(self.page_size) as u64;
+            let table_addr = self.allocator.allocate_frame()? as u64;
             lvl0_descriptor.set_valid(true);
             lvl0_descriptor.set_is_table(true);
             lvl0_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -201,7 +184,7 @@ impl PageTable<'_> {
         if !lvl0_descriptor.valid() {
             // We need to allocate a Lvl1 table to store in this descriptor, then we need
             // to initialize this descriptor
-            let table_addr = PageTable::new_table_mem(self.page_size) as u64;
+            let table_addr = self.allocator.allocate_frame()? as u64;
             lvl0_descriptor.set_valid(true);
             lvl0_descriptor.set_is_table(true);
             lvl0_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -212,7 +195,7 @@ impl PageTable<'_> {
         let lvl1_descriptor = &mut lvl1_table[virt_addr.lvl1_idx() as usize];
         if !lvl1_descriptor.valid() {
             // We need to allocate a new Lvl2 table to store in this descriptor
-            let table_addr = PageTable::new_table_mem(self.page_size) as u64;
+            let table_addr = self.allocator.allocate_frame()? as u64;
             lvl1_descriptor.set_valid(true);
             lvl1_descriptor.set_is_table(true);
             lvl1_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -255,7 +238,7 @@ impl PageTable<'_> {
         if !lvl0_descriptor.valid() {
             // We need to allocate a Lvl1 table to store in this descriptor, then we need
             // to initialize this descriptor
-            let table_addr = PageTable::new_table_mem(self.page_size) as u64;
+            let table_addr = self.allocator.allocate_frame()? as u64;
             lvl0_descriptor.set_valid(true);
             lvl0_descriptor.set_is_table(true);
             lvl0_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -266,7 +249,7 @@ impl PageTable<'_> {
         let lvl1_descriptor = &mut lvl1_table[virt_addr.lvl1_idx() as usize];
         if !lvl1_descriptor.valid() {
             // We need to allocate a new Lvl2 table to store in this descriptor
-            let table_addr = PageTable::new_table_mem(self.page_size) as u64;
+            let table_addr = self.allocator.allocate_frame()? as u64;
             lvl1_descriptor.set_valid(true);
             lvl1_descriptor.set_is_table(true);
             lvl1_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -277,7 +260,7 @@ impl PageTable<'_> {
         let lvl2_descriptor = &mut lvl2_table[virt_addr.lvl2_idx() as usize];
         if !lvl2_descriptor.valid() {
             // We need to allocate a new Lvl3 table to store in this descriptor
-            let table_addr = PageTable::new_table_mem(self.page_size) as u64;
+            let table_addr = self.allocator.allocate_frame()? as u64;
             lvl2_descriptor.set_valid(true);
             lvl2_descriptor.set_is_table(true);
             lvl2_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -295,29 +278,9 @@ impl PageTable<'_> {
 
         Ok(())
     }
-
-    /// Deallocates a frame allocated by this table
-    fn dealloc_page(addr: *mut u8, sz: u64) {
-        unsafe { dealloc(addr, PageTable::page_layout(sz)) }
-    }
-
-    /// Allocates a single physical frame to store a new table
-    fn new_table_mem(sz: u64) -> *mut u64 {
-        let addr = unsafe { alloc(PageTable::page_layout(sz)) };
-        // Zeroing out the entire table. Sound because its aligned on page table boundary
-        // and the write doesn't exceed the size of the page
-        unsafe {
-            core::ptr::write_bytes(addr, 0, 512);
-        }
-        addr as *mut u64
-    }
-
-    fn page_layout(sz: u64) -> Layout {
-        Layout::new::<[u64; 512]>().align_to(sz as usize).unwrap()
-    }
 }
 
-impl Drop for PageTable<'_> {
+impl<T: PageAlloc> Drop for PageTable<'_, T> {
     /// Walks the entire allocated page table, freeing each frame
     fn drop(&mut self) {
         for lvl0_descriptor in &mut *self.lvl0_table {
@@ -336,15 +299,16 @@ impl Drop for PageTable<'_> {
                             let page_table_ptr =
                                 (lvl2_descriptor.next_table_addr() << 12) as *mut PageDescriptor;
 
-                            PageTable::dealloc_page(page_table_ptr as *mut u8, self.page_size);
+                            self.allocator.deallocate_frame(page_table_ptr as *mut u8);
                         }
-                        PageTable::dealloc_page(lvl2_table_ptr as *mut u8, self.page_size);
+                        self.allocator.deallocate_frame(lvl2_table_ptr as *mut u8);
                     }
                 }
-                PageTable::dealloc_page(lvl1_table_ptr as *mut u8, self.page_size);
+                self.allocator.deallocate_frame(lvl1_table_ptr as *mut u8);
             }
         }
-        PageTable::dealloc_page(self.lvl0_table.as_ptr() as *mut u8, self.page_size);
+        self.allocator
+            .deallocate_frame(self.lvl0_table.as_ptr() as *mut u8);
     }
 }
 

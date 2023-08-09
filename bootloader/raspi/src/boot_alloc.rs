@@ -5,34 +5,20 @@
 //! implement an entire heap for the bootloader.
 
 use crate::page_size;
-use core::alloc::GlobalAlloc;
 use generic_once_cell::Lazy;
 use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
 use raspi_memory::page_frame_allocator::PageFrameAllocator;
 
-pub struct PageFrameAllocatorNewtype(pub Lazy<RawSpinlock, Spinlock<PageFrameAllocator>>);
-unsafe impl GlobalAlloc for PageFrameAllocatorNewtype {
-    unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
-        if layout.align() > page_size() as usize || layout.size() > page_size() as usize {
-            return core::ptr::null_mut();
-        }
-
-        self.0.lock().alloc_frame() as *mut u8
+pub struct FrameAlloc;
+impl raspi_memory::page_table::PageAlloc for FrameAlloc {
+    fn allocate_frame(&mut self) -> Result<*mut u8, ()> {
+        Ok(FRAME_ALLOCATOR.lock().alloc_frame() as *mut u8)
     }
 
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: core::alloc::Layout) {
-        if layout.align() > page_size() as usize || layout.size() > page_size() as usize {
-            panic!("Cannot dealloc this memory block");
-        }
-
-        self.0
-            .lock()
-            .free_frame(ptr as *mut u64)
-            .expect("Failed to free frame");
+    fn deallocate_frame(&mut self, frame: *mut u8) {
+        let _ = FRAME_ALLOCATOR.lock().free_frame(frame as *mut u64);
     }
 }
-#[global_allocator]
-pub static FRAME_ALLOCATOR: PageFrameAllocatorNewtype =
-    PageFrameAllocatorNewtype(Lazy::new(|| {
-        Spinlock::new(PageFrameAllocator::new(page_size()))
-    }));
+
+pub static FRAME_ALLOCATOR: Lazy<RawSpinlock, Spinlock<PageFrameAllocator>> =
+    Lazy::new(|| Spinlock::new(PageFrameAllocator::new(page_size())));
