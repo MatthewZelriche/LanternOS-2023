@@ -12,7 +12,10 @@ use raspi_memory::page_frame_allocator::PageFrameAllocator;
 pub struct FrameAlloc;
 impl raspi_memory::page_table::PageAlloc for FrameAlloc {
     fn allocate_frame(&mut self) -> Result<*mut u8, ()> {
-        Ok(FRAME_ALLOCATOR.lock().alloc_frame() as *mut u8)
+        Ok(FRAME_ALLOCATOR
+            .lock()
+            .alloc_frame()
+            .expect("Bootloader ran out of physical frames to allocate!") as *mut u8)
     }
 
     fn deallocate_frame(&mut self, frame: *mut u8) {

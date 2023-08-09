@@ -165,7 +165,10 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     // Also map the stack to the higher half
     // TODO: Guard page
     let stack_virt_start = kernel_virt_start + offset;
-    let stack_phys_start = FRAME_ALLOCATOR.lock().alloc_frame() as u64;
+    let stack_phys_start = FRAME_ALLOCATOR
+        .lock()
+        .alloc_frame()
+        .expect("Failed to allocate frame for kernel heap") as u64;
     offset = 0;
     ttbr1
         .map_page(

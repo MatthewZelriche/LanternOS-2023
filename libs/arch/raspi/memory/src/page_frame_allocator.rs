@@ -79,22 +79,20 @@ impl PageFrameAllocator {
 
     /// Allocates a frame of physical memory from the freelist
     ///
-    /// Returns the physical address of the start of a frame of memory.
-    ///
-    /// # Panics
-    /// Panics if the freelist contains zero frames.
-    pub fn alloc_frame(&mut self) -> *mut u64 {
+    /// Returns the physical address of the start of a frame of memory, or Err if the allocator
+    /// has run out of frames to allocate
+    pub fn alloc_frame(&mut self) -> Result<*mut u8, ()> {
         match self.freelist {
-            ptr if ptr.is_null() => panic!("Page frame allocator out of usable frames!"),
+            ptr if ptr.is_null() => Err(()),
             _ => {
-                let frame = self.freelist as *mut u64;
+                let frame = self.freelist as *mut u8;
                 // Dereferencing this node is safe because the only way a frame of memory can exist
                 // inside our freelist is if it has been added there by a call to free_frame, guarunteeing
                 // that a valid node is there to be deferenced
                 let next_node = unsafe { &(*(self.freelist)) }.next;
                 self.freelist = next_node;
                 self.num_free -= 1;
-                frame
+                Ok(frame)
             }
         }
     }
