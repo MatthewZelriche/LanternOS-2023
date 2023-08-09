@@ -62,7 +62,7 @@ impl MemoryMapEntry {
         range.contains(&other.base_addr) || range.contains(&other.end_addr)
     }
     fn fully_contains(&self, other: &Self) -> bool {
-        let range = self.base_addr..self.end_addr;
+        let range = self.base_addr..=self.end_addr;
         range.contains(&other.base_addr) && range.contains(&other.end_addr)
     }
 
@@ -310,7 +310,29 @@ impl MemoryMap {
         }
     }
 
-    pub fn add_entry(&mut self, entry: MemoryMapEntry) -> Result<(), DevTreeError> {
+    pub fn add_entry(&mut self, mut entry: MemoryMapEntry) -> Result<(), DevTreeError> {
+        // Merge adjacent entries of same type
+        if let Some(old_entry) = self
+            .entries
+            .iter()
+            .find(|x| x.end_addr == entry.base_addr && x.entry_type == entry.entry_type)
+        {
+            entry.base_addr = old_entry.base_addr;
+            entry.size = MemSize {
+                bytes: entry.end_addr - entry.base_addr,
+            };
+        }
+        if let Some(old_entry) = self
+            .entries
+            .iter()
+            .find(|x| x.base_addr == entry.end_addr && x.entry_type == entry.entry_type)
+        {
+            entry.end_addr = old_entry.end_addr;
+            entry.size = MemSize {
+                bytes: entry.end_addr - entry.base_addr,
+            };
+        }
+
         // Remove free entries if they are completely consumed by a reserved entry
         self.entries.retain(|x| !entry.fully_contains(x));
 
