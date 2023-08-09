@@ -4,16 +4,18 @@
 
 mod boot_alloc;
 mod init_mmu;
-mod mem_size;
-mod memory_map;
 
 use crate::boot_alloc::{FrameAlloc};
 use crate::init_mmu::init_mmu;
-use crate::{
-    mem_size::MemSize,
-    memory_map::{EntryType, MemoryMap, MemoryMapEntry},
-};
 use align_data::include_aligned;
+use fdt_rs::base::DevTree;
+use fdt_rs::error::DevTreeError;
+use fdt_rs::prelude::{FallibleIterator, PropReader};
+use raspi_memory::mem_size::MemSize;
+use raspi_memory::memory_map::{MemoryMap, MemoryMapEntry, EntryType};
+use raspi_peripherals::get_board_peripheral_range;
+use raspi_peripherals::mailbox::GetGpuMemory;
+use core::ops::Deref;
 use core::{
     arch::{asm, global_asm},
     panic::PanicInfo,
@@ -46,12 +48,19 @@ global_asm!(include_str!("start.S"));
 extern "C" {
     static __PG_SIZE: u8;
     static __KERNEL_VIRT_START: u8;
+    static __stack_end: u8;
+    static __bootloader_start: u8;
+    static __bootloader_end: u8;
+    static __stack: u8;
 }
 pub fn page_size() -> u64 {
     unsafe { (&__PG_SIZE as *const u8) as u64 }
 }
 pub fn kernel_virt_start() -> u64 {
     unsafe { (&__KERNEL_VIRT_START as *const u8) as u64 }
+}
+pub fn get_page_addr(addr: u64) -> u64 {
+    addr & !(page_size() - 1)
 }
 
 #[macro_export]
@@ -78,8 +87,9 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     println!("Raspi bootloader is preparing environment for kernel...");
 
     let map_mutex = MEM_MAP.get_or_init(|| {
-        Spinlock::new(MemoryMap::new(dtb_ptr).expect("Failed to construct memory map"))
+        Spinlock::new(MemoryMap::new())
     });
+    reserve_memory_regions(dtb_ptr, map_mutex).expect("Failed to create memory map");
 
     // TODO: Not sure why this is necessary...but if I don't reserve the very first page of memory,
     // attempting to write to that region causes cpu faults.
@@ -214,6 +224,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     println!("Bootloader allocated {} pages of memory in total", bl_reserved_count / page_size());
     let final_allocated_pages = start_free_frames - frame_allocator.num_free_frames();
     // Sanity check to ensure our memory map was updated correctly
+    // Safety: Unsafe to allocate ANY frames past this point
     assert!((bl_reserved_count / page_size()) == final_allocated_pages);
 
     // Transfer control to the kernel
@@ -223,17 +234,162 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     );
     // TODO: Have to drop stuff because rust cant figure out we done when we move to kmain
 
-    // Safety: Unsafe to use FRAME_ALLOCATOR or any dynamic memory allocation after this point.
     let fn_void_ptr = kernel_elf.hdr.entry as *const ();
+    // Safety: We are about to leave the bootloader entirely and enter kernel init.
+    // Normally, grabbing a pointer to a OnceCell blocked by a mutex would be wildly unsafe,
+    // but we know that no bootloader code will ever execute again after we jump to the kernel.
+    // We can create a new OnceCell in kernel space by copying the memory map at this pointer, soundly.
+    let mem_map_addr = MEM_MAP.get().unwrap().lock().deref() as *const MemoryMap;
     unsafe {
         asm!("mov sp, {stack}", 
         "mov x0, {mmio_start}", 
+        "mov x1, {memory_map_addr}",
         "br {entry}", 
         stack = in(reg) stack_top, 
         mmio_start = in(reg) mmio_start,
+        memory_map_addr = in(reg) mem_map_addr,
         entry = in(reg) fn_void_ptr);
     }
     loop {}
+}
+
+fn reserve_memory_regions(dtb_ptr: *const u8, map: &Spinlock<MemoryMap>) -> Result<(), DevTreeError> {
+    let dtb: DevTree;
+    unsafe {
+        // Sound because this memory region will be protected by the memory map for the entire
+        // lifetime of the os
+        dtb = DevTree::from_raw_pointer(dtb_ptr).expect("Failed to read dtb! Err");
+    }
+
+    // Determine cell sizes
+    let mut address_cells = 0;
+    let mut size_cells = 0;
+    if let Some(root) = dtb.root()? {
+        address_cells = root
+            .props()
+            .find(|x| Ok(x.name()? == "#address-cells"))?
+            .ok_or(DevTreeError::ParseError)?
+            .u32(0)?;
+        size_cells = root
+            .props()
+            .find(|x| Ok(x.name()? == "#size-cells"))?
+            .ok_or(DevTreeError::ParseError)?
+            .u32(0)?;
+    }
+
+    // First enumerate our free memory blocks
+    let mut max_addr: u64 = 0;
+    dtb.nodes()
+        .filter(|x| Ok(x.name()?.contains("memory@")))
+        .for_each(|x| {
+            let reg = x
+                .props()
+                .find(|x| Ok(x.name()? == "reg"))?
+                .ok_or(DevTreeError::ParseError)?;
+
+            let base_addr: u64;
+            let size_bytes: u64;
+            match address_cells {
+                1 => base_addr = reg.u32(0)?.into(),
+                2 => base_addr = reg.u64(0)?,
+                _ => return Err(DevTreeError::ParseError),
+            }
+
+            match size_cells {
+                1 => size_bytes = reg.u32(address_cells as usize)?.into(),
+                2 => size_bytes = reg.u64(address_cells as usize)?,
+                _ => return Err(DevTreeError::ParseError),
+            }
+
+            if base_addr + size_bytes > max_addr {
+                max_addr = base_addr + size_bytes;
+            }
+
+            map.lock().add_entry(MemoryMapEntry {
+                base_addr,
+                size: MemSize { bytes: size_bytes },
+                end_addr: base_addr + size_bytes,
+                entry_type: EntryType::Free,
+            }).map_err(|_| DevTreeError::NotEnoughMemory)
+        })?;
+
+    // Now we can start assigning reserved blocks...
+
+    // Find and reserve pages for the DTB
+    let dtb_page_start = get_page_addr(dtb_ptr as u64);
+    let dtb_page_end = (dtb_page_start + dtb.totalsize() as u64).next_multiple_of(page_size());
+    let dtb_size_bytes = dtb_page_end - dtb_page_start;
+    map.lock().add_entry(MemoryMapEntry {
+        base_addr: dtb_page_start,
+        size: MemSize {
+            bytes: dtb_size_bytes,
+        },
+        end_addr: dtb_page_end,
+        entry_type: EntryType::DtReserved,
+    }).map_err(|_| DevTreeError::NotEnoughMemory)?;
+
+    // Reserve GPU firmware
+    let mut msg = GetGpuMemory::new();
+    MAILBOX.lock().send_message((&mut msg) as *mut Message<_>);
+    if msg.code != Mailbox::RESP_SUCCESS {
+        return Err(DevTreeError::ParseError);
+    }
+    let start: u64 = msg.data.get_base().into();
+    let size: u64 = msg.data.get_size().into();
+    let end: u64 = start + size;
+    map.lock().add_entry(MemoryMapEntry {
+        base_addr: start,
+        size: MemSize { bytes: size.into() },
+        end_addr: end,
+        entry_type: EntryType::Firmware,
+    }).map_err(|_| DevTreeError::NotEnoughMemory)?;
+
+    // Reserve the region for MMIO
+    let (peripherals_phys_base, peripherals_phys_end) = get_board_peripheral_range();
+    let size = peripherals_phys_end - peripherals_phys_base;
+    map.lock().add_entry(MemoryMapEntry {
+        base_addr: peripherals_phys_base,
+        size: MemSize { bytes: size },
+        end_addr: peripherals_phys_end,
+        entry_type: EntryType::Mmio,
+    }).map_err(|_| DevTreeError::NotEnoughMemory)?;
+
+    // Reserve the stack region
+    let stack_start;
+    let stack_end;
+    unsafe {
+        stack_start = (&__stack_end as *const u8) as u64;
+        stack_end = (&__stack as *const u8) as u64;
+    }
+    let stack_start_page_addr = get_page_addr(stack_start);
+    let stack_end_page_addr = get_page_addr(stack_end); // Stack end is exclusive
+    let stack_size = stack_end_page_addr - stack_start_page_addr;
+    map.lock().add_entry(MemoryMapEntry {
+        base_addr: stack_start_page_addr,
+        size: MemSize { bytes: stack_size },
+        end_addr: stack_end_page_addr,
+        entry_type: EntryType::Bootloader,
+    }).map_err(|_| DevTreeError::NotEnoughMemory)?;
+
+    // Reserve the bootloader region
+    let bl_start;
+    let bl_end;
+    unsafe {
+        bl_start = (&__bootloader_start as *const u8) as u64;
+        bl_end = &__bootloader_end as *const u8 as u64;
+    }
+    let bl_start_page_addr = get_page_addr(bl_start);
+    let bl_end_page_addr = bl_end.next_multiple_of(page_size());
+    let bl_size = bl_end_page_addr - bl_start_page_addr;
+    map.lock().add_entry(MemoryMapEntry {
+        base_addr: bl_start_page_addr,
+        size: MemSize { bytes: bl_size },
+        end_addr: bl_end_page_addr,
+        entry_type: EntryType::Bootloader,
+    }).map_err(|_| DevTreeError::NotEnoughMemory)?;
+
+    map.lock().set_total_mem(max_addr);
+    Ok(())
 }
 
 fn load_elf(kernel_elf: &ElfFile, map: &Spinlock<MemoryMap>) {
@@ -306,7 +462,7 @@ fn load_elf(kernel_elf: &ElfFile, map: &Spinlock<MemoryMap>) {
                 bytes: kernel_memsz,
             },
             end_addr: region.base_addr + kernel_memsz,
-            entry_type: memory_map::EntryType::Kernel,
+            entry_type: EntryType::Kernel,
         })
         .expect("Failed to install kernel data into memory map");
 }

@@ -11,10 +11,6 @@ generic_once_cell = "0.1.1"
 tock-registers = "0.8.1"
 aarch64-cpu = { version = "9.x.x" }
 
-[dependencies.fdt-rs]
-version = "0.4.3"
-default-features = false
-
 [dependencies.arrayvec]
 version = "0.7.4"
 default-features = false

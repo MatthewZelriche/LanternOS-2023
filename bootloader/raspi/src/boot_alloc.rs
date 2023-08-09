@@ -4,11 +4,14 @@
 //! layouts greater than 1 frame size. This is to keep the bootloader lightweight and avoid having to
 //! implement an entire heap for the bootloader.
 
-use super::memory_map::EntryType;
-use crate::{mem_size::MemSize, memory_map::MemoryMapEntry, page_size, MEM_MAP};
+use crate::{page_size, MEM_MAP};
 use generic_once_cell::Lazy;
 use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
-use raspi_memory::page_frame_allocator::PageFrameAllocator;
+use raspi_memory::{
+    mem_size::MemSize,
+    memory_map::{EntryType, MemoryMapEntry},
+    page_frame_allocator::PageFrameAllocator,
+};
 
 // FrameAlloc is a very simple wrapper around our global frame allocator for use by the bootloader
 // This ensures nobody can accidentally call PageFrameAllocator's alloc and dealloc functions directly,

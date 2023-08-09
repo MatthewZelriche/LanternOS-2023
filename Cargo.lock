@@ -98,7 +98,6 @@ version = "0.1.0"
 dependencies = [
  "aarch64-cpu",
  "arrayvec",
- "fdt-rs",
  "generic_once_cell",
  "raspi-concurrency",
  "raspi-memory",
@@ -174,6 +173,7 @@ dependencies = [
 name = "raspi-memory"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "bitfield",
 ]
 

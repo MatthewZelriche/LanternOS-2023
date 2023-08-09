@@ -5,10 +5,15 @@ pub mod peripherals;
 pub mod util;
 
 use crate::peripherals::{MAILBOX, UART};
+use generic_once_cell::OnceCell;
+use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
+use raspi_memory::memory_map::MemoryMap;
 use raspi_peripherals::get_mmio_offset_from_peripheral_base;
 
+static MEM_MAP: OnceCell<RawSpinlock, Spinlock<MemoryMap>> = OnceCell::new();
+
 #[no_mangle]
-pub extern "C" fn kernel_early_init(mmio_start_addr: u64) -> ! {
+pub extern "C" fn kernel_early_init(mmio_start_addr: u64, mem_map: *mut MemoryMap) -> ! {
     // Update our MMIO address to use higher half
     UART.lock()
         .update_mmio_base(mmio_start_addr + get_mmio_offset_from_peripheral_base());
@@ -17,13 +22,13 @@ pub extern "C" fn kernel_early_init(mmio_start_addr: u64) -> ! {
         .update_mmio_base(mmio_start_addr + get_mmio_offset_from_peripheral_base());
     kprint!("Performing kernel early init...");
 
+    // Copy over the old memory map data before we reclaim the bootloader memory
+    let mem_map_old: &MemoryMap = unsafe { &mut *mem_map };
+    MEM_MAP.get_or_init(|| Spinlock::new(mem_map_old.clone()));
+
     kmain();
 }
 
-/*
- * By the time we reach this fn, the bootloader has already configured the UART clock rate and baud rate.
- * There's no need to send a mailbox message here; it would be redundant
- */
 fn kmain() -> ! {
     kprint!("Kernel initialization complete");
     /*
