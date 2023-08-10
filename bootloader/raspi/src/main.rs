@@ -83,6 +83,11 @@ macro_rules! println {
 static MEM_MAP: OnceCell<RawSpinlock, Spinlock<MemoryMap>> = OnceCell::new();
 
 #[no_mangle]
+pub extern "C" fn secondary_core_main(core_num: u64, ttbr0_ptr: u64, ttbr1_ptr: u64) -> ! {
+    loop{}
+}
+
+#[no_mangle]
 pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     // Inform the raspi of our desired clock speed for the UART. Necessary for UART to function.
     // Mailbox requires physical address instead of virtual, but we don't have the MMU up yet
@@ -237,8 +242,10 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     const ARG_ADDRESSES: [u64; 3] = [0xFA0, 0xFC0, 0xFE0];
     for (i, register) in CPU_MAILBOX_REGS.iter().enumerate() {
         unsafe {
-            // Write in the stack pointer arg
+            // Write in the arguments
             core::ptr::write_volatile(ARG_ADDRESSES[i] as *mut u64, kernel_stacks_phys_address[i + 1]);
+            core::ptr::write_volatile((ARG_ADDRESSES[i] + 8) as *mut u64, page_table.as_raw_ptr() as u64);
+            core::ptr::write_volatile((ARG_ADDRESSES[i] + 16) as *mut u64, ttbr1.as_raw_ptr() as u64);
 
             match register {
                 0xE0 => init_secondary_core(*register, core_1_start as u64),

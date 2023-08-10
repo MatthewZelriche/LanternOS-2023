@@ -1,5 +1,3 @@
-
-
 .text
 .type init_secondary_core, @function
 .globl init_secondary_core
@@ -11,6 +9,20 @@ init_secondary_core:
    ret
 
 
+.macro to_rust_main core
+   ldr x1, [x0]
+   mov sp, x1
+
+   add x10, x0, #8      // TTBR0 ptr
+   add x11, x0, #16     // TTBR1 ptr
+   // Store ttbr0 and ttbr1 ptr into arguments for rust fn
+   ldr x0, =\core\()
+   ldr x1, [x10]
+   ldr x2, [x11]
+   bl secondary_core_main
+.endmacro
+
+
 .text
 .type core_1_start, @function
 .globl core_1_start
@@ -20,13 +32,10 @@ core_1_start:
    // These regions are defined in main.rs in the raspi bootloader
    ldr x0, =0xFA0
 
-   el_transition setup_core_1_stack
+   el_transition core_1_el1
 
-   setup_core_1_stack:
-   ldr x1, [x0]
-   mov sp, x1
-   core_1_loop:
-   bl core_1_loop
+   core_1_el1:
+   to_rust_main 1
 
 
 .text
@@ -38,13 +47,10 @@ core_2_start:
    // These regions are defined in main.rs in the raspi bootloader
    ldr x0, =0xFC0
 
-   el_transition setup_core_2_stack
+   el_transition core_2_el1
 
-   setup_core_2_stack:
-   ldr x1, [x0]
-   mov sp, x1
-   core_2_loop:
-   bl core_2_loop
+   core_2_el1:
+   to_rust_main 2
 
 
 .text
@@ -56,10 +62,7 @@ core_3_start:
    // These regions are defined in main.rs in the raspi bootloader
    ldr x0, =0xFE0
 
-   el_transition setup_core_3_stack
+   el_transition core_3_el1
 
-   setup_core_3_stack:
-   ldr x1, [x0]
-   mov sp, x1
-   core_3_loop:
-   bl core_3_loop
+   core_3_el1:
+   to_rust_main 3
