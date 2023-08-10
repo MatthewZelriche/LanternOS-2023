@@ -50,11 +50,12 @@ pub extern "C" fn kernel_early_init(
         .base_addr;
 
     // Update our MMIO address to use higher half
-    UART.lock()
-        .update_mmio_base(peripheral_start_addr + get_mmio_offset_from_peripheral_base());
-    MAILBOX
-        .lock()
-        .update_mmio_base(peripheral_start_addr + get_mmio_offset_from_peripheral_base());
+    UART.lock().update_mmio_base(
+        memory_linear_map_start + peripheral_start_addr + get_mmio_offset_from_peripheral_base(),
+    );
+    MAILBOX.lock().update_mmio_base(
+        memory_linear_map_start + peripheral_start_addr + get_mmio_offset_from_peripheral_base(),
+    );
 
     // Fork off the secondary cores
     if core_num != 0 {
