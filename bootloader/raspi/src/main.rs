@@ -155,7 +155,6 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
         start_free_frames
     );
 
-    println!("Enabling MMU...");
     let mut ttbr1 = PageTable::new(&frame_allocator).expect("Failed to construct page table");
     // Identity map all of physical memory as 1GiB huge pages
     let mut page_table = PageTable::new(&frame_allocator).expect("Failed to construct page table");
@@ -208,10 +207,6 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
             .expect("Failed to virtually map stack");
         offset += page_size();
         kernel_stacks_virt_top[i] = kernel_virt_start + offset;
-        println!(
-            "Phys addr: {:#x}, virt addr: {:#x}",
-            kernel_stacks_phys_address[i], kernel_stacks_virt_top[i]
-        );
     }
 
     // Linear mapping of all physical RAM into the higher half
@@ -278,7 +273,8 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     // TODO: Spin up secondary cores
     // SAFETY: All read-only statics must be initialized by this point
     // Transfer control to the kernel
-    println!("Initializng secondary cores and transferring control to kernel entry point",);
+    println!("Initializng secondary cores and transferring control to kernel entry point");
+    println!("");
     const CPU_MAILBOX_REGS: [u64; 3] = [0xE0, 0xE8, 0xF0];
     const ARG_ADDRESSES: [u64; 3] = [0xFA0, 0xFC0, 0xFE0];
     for (i, register) in CPU_MAILBOX_REGS.iter().enumerate() {
