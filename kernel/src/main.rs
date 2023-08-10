@@ -1,24 +1,36 @@
 #![no_std]
 #![no_main]
 
+pub mod memory;
 pub mod peripherals;
 pub mod util;
 
+extern "C" {
+    static __PG_SIZE: u8;
+}
+pub fn page_size() -> u64 {
+    unsafe { (&__PG_SIZE as *const u8) as u64 }
+}
+
 use crate::peripherals::{MAILBOX, UART};
-use generic_once_cell::OnceCell;
+use generic_once_cell::Lazy;
+use memory::frame_allocator::FrameAlloc;
 use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
-use raspi_memory::memory_map::{EntryType, MemoryMap};
+use raspi_memory::{
+    memory_map::{EntryType, MemoryMap},
+    page_table::PageAlloc,
+};
 use raspi_peripherals::get_mmio_offset_from_peripheral_base;
 
-static MEM_MAP: OnceCell<RawSpinlock, Spinlock<MemoryMap>> = OnceCell::new();
+static FRAME_ALLOCATOR: Lazy<RawSpinlock, Spinlock<FrameAlloc>> =
+    Lazy::new(|| Spinlock::new(FrameAlloc::new()));
 
 #[no_mangle]
 pub extern "C" fn kernel_early_init(memory_linear_map_start: u64, mem_map: *mut MemoryMap) -> ! {
     // Copy over the old memory map data before we reclaim the bootloader memory
     let mem_map_old: &MemoryMap = unsafe { &mut *mem_map };
-    let map_mutex = MEM_MAP.get_or_init(|| Spinlock::new(mem_map_old.clone()));
-    let peripheral_start_addr = map_mutex
-        .lock()
+    let map = mem_map_old.clone();
+    let peripheral_start_addr = map
         .get_entries()
         .iter()
         .find(|x| x.entry_type == EntryType::Mmio)
@@ -32,6 +44,23 @@ pub extern "C" fn kernel_early_init(memory_linear_map_start: u64, mem_map: *mut 
         .lock()
         .update_mmio_base(peripheral_start_addr + get_mmio_offset_from_peripheral_base());
     kprint!("Performing kernel early init...");
+
+    // Initialize a page frame allocator for the kernel
+    for entry in map.get_entries() {
+        match entry.entry_type {
+            EntryType::Free => {
+                for addr in (entry.base_addr..entry.end_addr).step_by(page_size() as usize) {
+                    // If we fail to add a page to the free list, just silently ignore
+                    let _ = FRAME_ALLOCATOR.lock().deallocate_frame(addr as *mut u8);
+                }
+            }
+            _ => (),
+        }
+    }
+    kprint!(
+        "Initialized page frame allocator with {} free frames",
+        FRAME_ALLOCATOR.lock().num_free_frames()
+    );
 
     kmain();
 }
