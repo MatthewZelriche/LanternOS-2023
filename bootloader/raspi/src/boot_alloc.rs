@@ -6,8 +6,6 @@
 
 use crate::{page_size, MEM_MAP};
 use core::ptr::write_bytes;
-use generic_once_cell::Lazy;
-use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
 use raspi_memory::{
     mem_size::MemSize,
     memory_map::{EntryType, MemoryMapEntry},
@@ -23,13 +21,13 @@ impl FrameAlloc {
         FrameAlloc(PageFrameAllocator::new(page_size()))
     }
     pub fn num_free_frames(&self) -> u64 {
-        FRAME_ALLOCATOR.lock().num_free_frames()
+        self.0.num_free_frames()
     }
 }
 impl raspi_memory::page_table::PageAlloc for FrameAlloc {
     fn allocate_frame(&mut self) -> Result<*mut u8, ()> {
-        let frame = FRAME_ALLOCATOR
-            .lock()
+        let frame = self
+            .0
             .alloc_frame()
             .expect("Bootloader ran out of physical frames to allocate!")
             as *mut u8;
@@ -50,11 +48,6 @@ impl raspi_memory::page_table::PageAlloc for FrameAlloc {
     }
 
     fn deallocate_frame(&mut self, frame: *mut u8) {
-        let _ = FRAME_ALLOCATOR.lock().free_frame(frame as *mut u64);
+        let _ = self.0.free_frame(frame as *mut u64);
     }
 }
-
-// Safety: Do not use this directly! Create a new FrameAlloc and use that instead, so we can keep track
-// of whats been allocated in the memory map
-static FRAME_ALLOCATOR: Lazy<RawSpinlock, Spinlock<PageFrameAllocator>> =
-    Lazy::new(|| Spinlock::new(PageFrameAllocator::new(page_size())));
