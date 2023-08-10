@@ -24,7 +24,7 @@ use core::{
 use elf_parse::{ElfFile, MachineType};
 use generic_once_cell::{Lazy, OnceCell};
 use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
-use raspi_memory::page_table::{MemoryType, PageTable, VirtualAddr, PageAlloc};
+use raspi_memory::page_table::{MemoryType, PageTable, VirtualAddr, PageAlloc, Lvl0TableDescriptor};
 use raspi_peripherals::{
     mailbox::{Mailbox, Message, SetClockRate},
     uart::Uart,
@@ -84,6 +84,7 @@ static MEM_MAP: OnceCell<RawSpinlock, Spinlock<MemoryMap>> = OnceCell::new();
 
 #[no_mangle]
 pub extern "C" fn secondary_core_main(core_num: u64, ttbr0_ptr: u64, ttbr1_ptr: u64) -> ! {
+    init_mmu(ttbr0_ptr as *const Lvl0TableDescriptor, ttbr1_ptr as *const Lvl0TableDescriptor);
     loop{}
 }
 
@@ -233,11 +234,14 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     assert!((bl_reserved_count / page_size()) == final_allocated_pages);
 
     // Enable MMU for the primary core
-    init_mmu(&page_table, &ttbr1);
+    init_mmu(page_table.as_raw_ptr(), ttbr1.as_raw_ptr());
     println!("Successfully enabled the MMU");
 
     // TODO: Spin up secondary cores
-    println!("Initializng secondary cores...");
+    // Transfer control to the kernel
+    println!(
+        "Initializng secondary cores and transferring control to kernel entry point",
+    );
     const CPU_MAILBOX_REGS: [u64; 3] = [0xE0, 0xE8, 0xF0];
     const ARG_ADDRESSES: [u64; 3] = [0xFA0, 0xFC0, 0xFE0];
     for (i, register) in CPU_MAILBOX_REGS.iter().enumerate() {
@@ -255,14 +259,9 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
             };
         }
     }
-    println!("Bootloader has successfully initialized secondary cores");
-
-    // Transfer control to the kernel
-    println!(
-        "Transferring control to kernel entry point {:#x}",
-        kernel_elf.hdr.entry
-    );
     // TODO: Have to drop stuff because rust cant figure out we done when we move to kmain
+    // Safety: After this point, cannot use singletons not protected by a real spinlock
+    // The only exception is MEM_MAP, though we can perform purely read-only access to it only
 
     let fn_void_ptr = kernel_elf.hdr.entry as *const ();
     // Safety: We are about to leave the bootloader entirely and enter kernel init.

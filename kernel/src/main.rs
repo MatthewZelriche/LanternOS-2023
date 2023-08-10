@@ -26,6 +26,13 @@ static FRAME_ALLOCATOR: Lazy<RawSpinlock, Spinlock<FrameAlloc>> =
     Lazy::new(|| Spinlock::new(FrameAlloc::new()));
 
 #[no_mangle]
+pub extern "C" fn secondary_core_kmain() -> ! {
+    // TODO: When we jump to the kernel, we need some way to synchronize the cores to tell the kernel's
+    // main thread that its able to reclaim bootloader memory
+    loop {}
+}
+
+#[no_mangle]
 pub extern "C" fn kernel_early_init(memory_linear_map_start: u64, mem_map: *mut MemoryMap) -> ! {
     // Copy over the old memory map data before we reclaim the bootloader memory
     let mem_map_old: &MemoryMap = unsafe { &mut *mem_map };
