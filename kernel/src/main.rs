@@ -29,6 +29,7 @@ static FRAME_ALLOCATOR: Lazy<RawMutex, Mutex<FrameAlloc>> =
 pub extern "C" fn secondary_core_kmain(core_num: u64) -> ! {
     // TODO: When we jump to the kernel, we need some way to synchronize the cores to tell the kernel's
     // main thread that its able to reclaim bootloader memory
+    kprints!(core_num, "Hello from secondary core!");
     loop {}
 }
 
@@ -48,18 +49,17 @@ pub extern "C" fn kernel_early_init(
         .unwrap()
         .base_addr;
 
-    // TODO: Move this to after we update MMIO addresses once locks are set up properly.
-    // Fork off the secondary cores
-    if core_num != 0 {
-        secondary_core_kmain(core_num);
-    }
-
     // Update our MMIO address to use higher half
     UART.lock()
         .update_mmio_base(peripheral_start_addr + get_mmio_offset_from_peripheral_base());
     MAILBOX
         .lock()
         .update_mmio_base(peripheral_start_addr + get_mmio_offset_from_peripheral_base());
+
+    // Fork off the secondary cores
+    if core_num != 0 {
+        secondary_core_kmain(core_num);
+    }
     kprint!("Performing kernel early init...");
 
     // Initialize a page frame allocator for the kernel

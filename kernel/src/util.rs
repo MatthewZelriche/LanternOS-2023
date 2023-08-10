@@ -23,6 +23,18 @@ macro_rules! kprint {
     };
 }
 
+#[macro_export]
+macro_rules! kprints {
+    ($core:expr, $($arg:tt)*) => {
+        {
+            use core::fmt::Write;
+            let mut lock = UART.lock();
+            write!(lock, "[Core {}] ", $core).unwrap();
+            writeln!(lock, $($arg)*).unwrap();
+        }
+    };
+}
+
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
     kprint!("{}", _info);
