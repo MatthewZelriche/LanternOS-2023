@@ -43,6 +43,8 @@ struct AlignPage;
 static KERNEL: &[u8] = include_aligned!(AlignPage, "../../../out/lantern-os.elf");
 
 // Loads our entry point, _start, written entirely in assembly
+global_asm!(include_str!("el_transition.S"));
+global_asm!(include_str!("start_secondary.S"));
 global_asm!(include_str!("start.S"));
 
 extern "C" {
@@ -52,6 +54,8 @@ extern "C" {
     static __bootloader_start: u8;
     static __bootloader_end: u8;
     static __stack: u8;
+
+    fn init_secondary_core(mailbox_addr: u8, stack_addr: u64);
 }
 pub fn page_size() -> u64 {
     unsafe { (&__PG_SIZE as *const u8) as u64 }
@@ -191,9 +195,6 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     }
     println!("Mapped physical memory into higher half starting at address: {:#x}", memory_linear_map_start);
 
-    init_mmu(&page_table, &ttbr1);
-    println!("Successfully enabled the MMU");
-
     println!("Printing memory map: ");
     println!("");
     println!("Page size:       {}", MemSize { bytes: page_size() });
@@ -218,6 +219,20 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     // Sanity check to ensure our memory map was updated correctly
     // Safety: Unsafe to allocate ANY frames past this point
     assert!((bl_reserved_count / page_size()) == final_allocated_pages);
+
+    // Enable MMU for the primary core
+    init_mmu(&page_table, &ttbr1);
+    println!("Successfully enabled the MMU");
+
+    // TODO: Spin up secondary cores
+    println!("Initializng secondary cores...");
+    const CPU_MAILBOX_REGS: [u8; 3] = [0xE0, 0xE8, 0xF0];
+    for register in CPU_MAILBOX_REGS {
+        unsafe {
+            init_secondary_core(register, 0);
+        }
+    }
+    println!("Bootloader has successfully initialized secondary cores");
 
     // Transfer control to the kernel
     println!(
