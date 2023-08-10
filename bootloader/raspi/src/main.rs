@@ -179,25 +179,15 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     offset += page_size();
     let stack_top = stack_virt_start + offset;
 
-    // Remap MMIO
-    let mmio_start = 0xFFFF008000000000;
-    let mut offset = 0;
-    let lock = map_mutex.lock();
-    let mmio_segment = lock
-        .get_entries()
-        .iter()
-        .find(|x| x.entry_type == EntryType::Mmio)
-        .expect("Failed to find MMIO in memory");
-    for phys_page in (mmio_segment.base_addr..mmio_segment.end_addr).step_by(page_size() as usize) {
+    // Linear mapping of all physical RAM into the higher half
+    let memory_linear_map_start = stack_top.next_multiple_of(0x40000000);
+    let max_addr = map_mutex.lock().get_total_mem().to_bytes();
+    for page in (0..max_addr).step_by(0x40000000) {
         ttbr1
-            .map_page(
-                phys_page,
-                VirtualAddr(mmio_start + offset),
-                MemoryType::DEVICE,
-            )
-            .expect("Failed to remap MMIO to higher half!");
-        offset += page_size();
+            .map_1gib_page(page, VirtualAddr(memory_linear_map_start + page), MemoryType::DEVICE)
+            .expect("Failed to Identity map full physical memory");
     }
+    println!("Mapped physical memory into higher half starting at address: {:#x}", memory_linear_map_start);
 
     init_mmu(&page_table, &ttbr1);
     println!("Successfully enabled the MMU");
@@ -242,11 +232,11 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     let mem_map_addr = MEM_MAP.get().unwrap().lock().deref() as *const MemoryMap;
     unsafe {
         asm!("mov sp, {stack}", 
-        "mov x0, {mmio_start}", 
+        "mov x0, {memory_linear_map_start}", 
         "mov x1, {memory_map_addr}",
         "br {entry}", 
         stack = in(reg) stack_top, 
-        mmio_start = in(reg) mmio_start,
+        memory_linear_map_start = in(reg) memory_linear_map_start,
         memory_map_addr = in(reg) mem_map_addr,
         entry = in(reg) fn_void_ptr);
     }
