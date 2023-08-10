@@ -8,13 +8,6 @@ mod init_mmu;
 use crate::boot_alloc::FrameAlloc;
 use crate::init_mmu::init_mmu;
 use align_data::include_aligned;
-use fdt_rs::base::DevTree;
-use fdt_rs::error::DevTreeError;
-use fdt_rs::prelude::{FallibleIterator, PropReader};
-use raspi_memory::mem_size::MemSize;
-use raspi_memory::memory_map::{MemoryMap, MemoryMapEntry, EntryType};
-use raspi_peripherals::get_board_peripheral_range;
-use raspi_peripherals::mailbox::GetGpuMemory;
 use core::ops::Deref;
 use core::{
     arch::{asm, global_asm},
@@ -22,9 +15,18 @@ use core::{
     slice::{from_raw_parts, from_raw_parts_mut},
 };
 use elf_parse::{ElfFile, MachineType};
+use fdt_rs::base::DevTree;
+use fdt_rs::error::DevTreeError;
+use fdt_rs::prelude::{FallibleIterator, PropReader};
 use generic_once_cell::{Lazy, OnceCell};
 use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
-use raspi_memory::page_table::{MemoryType, PageTable, VirtualAddr, PageAlloc, Lvl0TableDescriptor};
+use raspi_memory::mem_size::MemSize;
+use raspi_memory::memory_map::{EntryType, MemoryMap, MemoryMapEntry};
+use raspi_memory::page_table::{
+    Lvl0TableDescriptor, MemoryType, PageAlloc, PageTable, VirtualAddr,
+};
+use raspi_peripherals::get_board_peripheral_range;
+use raspi_peripherals::mailbox::GetGpuMemory;
 use raspi_peripherals::{
     mailbox::{Mailbox, Message, SetClockRate},
     uart::Uart,
@@ -82,10 +84,19 @@ macro_rules! println {
 
 static MEM_MAP: OnceCell<RawSpinlock, Spinlock<MemoryMap>> = OnceCell::new();
 
+// Set once, read-only statics
+static KERNEL_START_ADDR: OnceCell<RawSpinlock, u64> = OnceCell::new();
+static MEMORY_LINEAR_MAP_START: OnceCell<RawSpinlock, u64> = OnceCell::new();
+static KERNEL_STACKS_VIRT_TOP: OnceCell<RawSpinlock, [u64; 4]> = OnceCell::new();
+
 #[no_mangle]
 pub extern "C" fn secondary_core_main(core_num: u64, ttbr0_ptr: u64, ttbr1_ptr: u64) -> ! {
-    init_mmu(ttbr0_ptr as *const Lvl0TableDescriptor, ttbr1_ptr as *const Lvl0TableDescriptor);
-    loop{}
+    init_mmu(
+        ttbr0_ptr as *const Lvl0TableDescriptor,
+        ttbr1_ptr as *const Lvl0TableDescriptor,
+    );
+
+    jump_to_kernel(core_num);
 }
 
 #[no_mangle]
@@ -98,9 +109,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
 
     println!("Raspi bootloader is preparing environment for kernel...");
 
-    let map_mutex = MEM_MAP.get_or_init(|| {
-        Spinlock::new(MemoryMap::new())
-    });
+    let map_mutex = MEM_MAP.get_or_init(|| Spinlock::new(MemoryMap::new()));
     reserve_memory_regions(dtb_ptr, map_mutex).expect("Failed to create memory map");
 
     // TODO: Not sure why this is necessary...but if I don't reserve the very first page of memory,
@@ -185,7 +194,11 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     let mut kernel_stacks_virt_top: [u64; 4] = [0, 0, 0, 0];
     // TODO: Guard pages
     for i in 0..4 {
-        kernel_stacks_phys_address[i] = frame_allocator.lock().allocate_frame().expect("Failed to allocate frame for kernel stack") as u64;
+        kernel_stacks_phys_address[i] = frame_allocator
+            .lock()
+            .allocate_frame()
+            .expect("Failed to allocate frame for kernel stack")
+            as u64;
         ttbr1
             .map_page(
                 kernel_stacks_phys_address[i],
@@ -195,7 +208,10 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
             .expect("Failed to virtually map stack");
         offset += page_size();
         kernel_stacks_virt_top[i] = kernel_virt_start + offset;
-        println!("Phys addr: {:#x}, virt addr: {:#x}", kernel_stacks_phys_address[i], kernel_stacks_virt_top[i]);
+        println!(
+            "Phys addr: {:#x}, virt addr: {:#x}",
+            kernel_stacks_phys_address[i], kernel_stacks_virt_top[i]
+        );
     }
 
     // Linear mapping of all physical RAM into the higher half
@@ -203,10 +219,17 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     let max_addr = map_mutex.lock().get_total_mem().to_bytes();
     for page in (0..max_addr).step_by(0x40000000) {
         ttbr1
-            .map_1gib_page(page, VirtualAddr(memory_linear_map_start + page), MemoryType::DEVICE)
+            .map_1gib_page(
+                page,
+                VirtualAddr(memory_linear_map_start + page),
+                MemoryType::DEVICE,
+            )
             .expect("Failed to Identity map full physical memory");
     }
-    println!("Mapped physical memory into higher half starting at address: {:#x}", memory_linear_map_start);
+    println!(
+        "Mapped physical memory into higher half starting at address: {:#x}",
+        memory_linear_map_start
+    );
 
     println!("Printing memory map: ");
     println!("");
@@ -224,10 +247,18 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     println!("");
     println!("{}", map_mutex.lock());
     let mut bl_reserved_count = 0;
-    for entry in map_mutex.lock().get_entries().iter().filter(|x| x.entry_type == EntryType::BLReserved) {
+    for entry in map_mutex
+        .lock()
+        .get_entries()
+        .iter()
+        .filter(|x| x.entry_type == EntryType::BLReserved)
+    {
         bl_reserved_count += entry.size.bytes;
     }
-    println!("Bootloader allocated {} pages of memory in total", bl_reserved_count / page_size());
+    println!(
+        "Bootloader allocated {} pages of memory in total",
+        bl_reserved_count / page_size()
+    );
     let final_allocated_pages = start_free_frames - frame_allocator.lock().num_free_frames();
     // Sanity check to ensure our memory map was updated correctly
     // Safety: Unsafe to allocate ANY frames past this point
@@ -237,19 +268,34 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     init_mmu(page_table.as_raw_ptr(), ttbr1.as_raw_ptr());
     println!("Successfully enabled the MMU");
 
+    // Set our read-only globals
+    KERNEL_START_ADDR.set(kernel_elf.hdr.entry).unwrap();
+    MEMORY_LINEAR_MAP_START
+        .set(memory_linear_map_start)
+        .unwrap();
+    KERNEL_STACKS_VIRT_TOP.set(kernel_stacks_virt_top).unwrap();
+
     // TODO: Spin up secondary cores
+    // SAFETY: All read-only statics must be initialized by this point
     // Transfer control to the kernel
-    println!(
-        "Initializng secondary cores and transferring control to kernel entry point",
-    );
+    println!("Initializng secondary cores and transferring control to kernel entry point",);
     const CPU_MAILBOX_REGS: [u64; 3] = [0xE0, 0xE8, 0xF0];
     const ARG_ADDRESSES: [u64; 3] = [0xFA0, 0xFC0, 0xFE0];
     for (i, register) in CPU_MAILBOX_REGS.iter().enumerate() {
         unsafe {
             // Write in the arguments
-            core::ptr::write_volatile(ARG_ADDRESSES[i] as *mut u64, kernel_stacks_phys_address[i + 1]);
-            core::ptr::write_volatile((ARG_ADDRESSES[i] + 8) as *mut u64, page_table.as_raw_ptr() as u64);
-            core::ptr::write_volatile((ARG_ADDRESSES[i] + 16) as *mut u64, ttbr1.as_raw_ptr() as u64);
+            core::ptr::write_volatile(
+                ARG_ADDRESSES[i] as *mut u64,
+                kernel_stacks_phys_address[i + 1],
+            );
+            core::ptr::write_volatile(
+                (ARG_ADDRESSES[i] + 8) as *mut u64,
+                page_table.as_raw_ptr() as u64,
+            );
+            core::ptr::write_volatile(
+                (ARG_ADDRESSES[i] + 16) as *mut u64,
+                ttbr1.as_raw_ptr() as u64,
+            );
 
             match register {
                 0xE0 => init_secondary_core(*register, core_1_start as u64),
@@ -263,7 +309,11 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     // Safety: After this point, cannot use singletons not protected by a real spinlock
     // The only exception is MEM_MAP, though we can perform purely read-only access to it only
 
-    let fn_void_ptr = kernel_elf.hdr.entry as *const ();
+    jump_to_kernel(0);
+}
+
+fn jump_to_kernel(core_num: u64) -> ! {
+    //let fn_void_ptr = kernel_elf.hdr.entry as *const ();
     // Safety: We are about to leave the bootloader entirely and enter kernel init.
     // Normally, grabbing a pointer to a OnceCell blocked by a mutex would be wildly unsafe,
     // but we know that no bootloader code will ever execute again after we jump to the kernel.
@@ -271,18 +321,23 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     let mem_map_addr = MEM_MAP.get().unwrap().lock().deref() as *const MemoryMap;
     unsafe {
         asm!("mov sp, {stack}", 
-        "mov x0, {memory_linear_map_start}", 
-        "mov x1, {memory_map_addr}",
+        "mov x0, {core_num}",
+        "mov x1, {memory_linear_map_start}", 
+        "mov x2, {memory_map_addr}",
         "br {entry}", 
-        stack = in(reg) kernel_stacks_virt_top[0], 
-        memory_linear_map_start = in(reg) memory_linear_map_start,
+        stack = in(reg) KERNEL_STACKS_VIRT_TOP.get().unwrap()[core_num as usize], 
+        core_num = in(reg) core_num,
+        memory_linear_map_start = in(reg) *MEMORY_LINEAR_MAP_START.get().unwrap(),
         memory_map_addr = in(reg) mem_map_addr,
-        entry = in(reg) fn_void_ptr);
+        entry = in(reg) *KERNEL_START_ADDR.get().unwrap());
     }
     loop {}
 }
 
-fn reserve_memory_regions(dtb_ptr: *const u8, map: &Spinlock<MemoryMap>) -> Result<(), DevTreeError> {
+fn reserve_memory_regions(
+    dtb_ptr: *const u8,
+    map: &Spinlock<MemoryMap>,
+) -> Result<(), DevTreeError> {
     let dtb: DevTree;
     unsafe {
         // Sound because this memory region will be protected by the memory map for the entire
@@ -334,12 +389,14 @@ fn reserve_memory_regions(dtb_ptr: *const u8, map: &Spinlock<MemoryMap>) -> Resu
                 max_addr = base_addr + size_bytes;
             }
 
-            map.lock().add_entry(MemoryMapEntry {
-                base_addr,
-                size: MemSize { bytes: size_bytes },
-                end_addr: base_addr + size_bytes,
-                entry_type: EntryType::Free,
-            }).map_err(|_| DevTreeError::NotEnoughMemory)
+            map.lock()
+                .add_entry(MemoryMapEntry {
+                    base_addr,
+                    size: MemSize { bytes: size_bytes },
+                    end_addr: base_addr + size_bytes,
+                    entry_type: EntryType::Free,
+                })
+                .map_err(|_| DevTreeError::NotEnoughMemory)
         })?;
 
     // Now we can start assigning reserved blocks...
@@ -348,14 +405,16 @@ fn reserve_memory_regions(dtb_ptr: *const u8, map: &Spinlock<MemoryMap>) -> Resu
     let dtb_page_start = get_page_addr(dtb_ptr as u64);
     let dtb_page_end = (dtb_page_start + dtb.totalsize() as u64).next_multiple_of(page_size());
     let dtb_size_bytes = dtb_page_end - dtb_page_start;
-    map.lock().add_entry(MemoryMapEntry {
-        base_addr: dtb_page_start,
-        size: MemSize {
-            bytes: dtb_size_bytes,
-        },
-        end_addr: dtb_page_end,
-        entry_type: EntryType::DtReserved,
-    }).map_err(|_| DevTreeError::NotEnoughMemory)?;
+    map.lock()
+        .add_entry(MemoryMapEntry {
+            base_addr: dtb_page_start,
+            size: MemSize {
+                bytes: dtb_size_bytes,
+            },
+            end_addr: dtb_page_end,
+            entry_type: EntryType::DtReserved,
+        })
+        .map_err(|_| DevTreeError::NotEnoughMemory)?;
 
     // Reserve GPU firmware
     let mut msg = GetGpuMemory::new();
@@ -366,22 +425,26 @@ fn reserve_memory_regions(dtb_ptr: *const u8, map: &Spinlock<MemoryMap>) -> Resu
     let start: u64 = msg.data.get_base().into();
     let size: u64 = msg.data.get_size().into();
     let end: u64 = start + size;
-    map.lock().add_entry(MemoryMapEntry {
-        base_addr: start,
-        size: MemSize { bytes: size.into() },
-        end_addr: end,
-        entry_type: EntryType::Firmware,
-    }).map_err(|_| DevTreeError::NotEnoughMemory)?;
+    map.lock()
+        .add_entry(MemoryMapEntry {
+            base_addr: start,
+            size: MemSize { bytes: size.into() },
+            end_addr: end,
+            entry_type: EntryType::Firmware,
+        })
+        .map_err(|_| DevTreeError::NotEnoughMemory)?;
 
     // Reserve the region for MMIO
     let (peripherals_phys_base, peripherals_phys_end) = get_board_peripheral_range();
     let size = peripherals_phys_end - peripherals_phys_base;
-    map.lock().add_entry(MemoryMapEntry {
-        base_addr: peripherals_phys_base,
-        size: MemSize { bytes: size },
-        end_addr: peripherals_phys_end,
-        entry_type: EntryType::Mmio,
-    }).map_err(|_| DevTreeError::NotEnoughMemory)?;
+    map.lock()
+        .add_entry(MemoryMapEntry {
+            base_addr: peripherals_phys_base,
+            size: MemSize { bytes: size },
+            end_addr: peripherals_phys_end,
+            entry_type: EntryType::Mmio,
+        })
+        .map_err(|_| DevTreeError::NotEnoughMemory)?;
 
     // Reserve the stack region
     let stack_start;
@@ -393,12 +456,14 @@ fn reserve_memory_regions(dtb_ptr: *const u8, map: &Spinlock<MemoryMap>) -> Resu
     let stack_start_page_addr = get_page_addr(stack_start);
     let stack_end_page_addr = get_page_addr(stack_end); // Stack end is exclusive
     let stack_size = stack_end_page_addr - stack_start_page_addr;
-    map.lock().add_entry(MemoryMapEntry {
-        base_addr: stack_start_page_addr,
-        size: MemSize { bytes: stack_size },
-        end_addr: stack_end_page_addr,
-        entry_type: EntryType::Bootloader,
-    }).map_err(|_| DevTreeError::NotEnoughMemory)?;
+    map.lock()
+        .add_entry(MemoryMapEntry {
+            base_addr: stack_start_page_addr,
+            size: MemSize { bytes: stack_size },
+            end_addr: stack_end_page_addr,
+            entry_type: EntryType::Bootloader,
+        })
+        .map_err(|_| DevTreeError::NotEnoughMemory)?;
 
     // Reserve the bootloader region
     let bl_start;
@@ -410,12 +475,14 @@ fn reserve_memory_regions(dtb_ptr: *const u8, map: &Spinlock<MemoryMap>) -> Resu
     let bl_start_page_addr = get_page_addr(bl_start);
     let bl_end_page_addr = bl_end.next_multiple_of(page_size());
     let bl_size = bl_end_page_addr - bl_start_page_addr;
-    map.lock().add_entry(MemoryMapEntry {
-        base_addr: bl_start_page_addr,
-        size: MemSize { bytes: bl_size },
-        end_addr: bl_end_page_addr,
-        entry_type: EntryType::Bootloader,
-    }).map_err(|_| DevTreeError::NotEnoughMemory)?;
+    map.lock()
+        .add_entry(MemoryMapEntry {
+            base_addr: bl_start_page_addr,
+            size: MemSize { bytes: bl_size },
+            end_addr: bl_end_page_addr,
+            entry_type: EntryType::Bootloader,
+        })
+        .map_err(|_| DevTreeError::NotEnoughMemory)?;
 
     map.lock().set_total_mem(max_addr);
     Ok(())

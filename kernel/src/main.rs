@@ -26,14 +26,18 @@ static FRAME_ALLOCATOR: Lazy<RawSpinlock, Spinlock<FrameAlloc>> =
     Lazy::new(|| Spinlock::new(FrameAlloc::new()));
 
 #[no_mangle]
-pub extern "C" fn secondary_core_kmain() -> ! {
+pub extern "C" fn secondary_core_kmain(core_num: u64) -> ! {
     // TODO: When we jump to the kernel, we need some way to synchronize the cores to tell the kernel's
     // main thread that its able to reclaim bootloader memory
     loop {}
 }
 
 #[no_mangle]
-pub extern "C" fn kernel_early_init(memory_linear_map_start: u64, mem_map: *mut MemoryMap) -> ! {
+pub extern "C" fn kernel_early_init(
+    core_num: u64,
+    memory_linear_map_start: u64,
+    mem_map: *mut MemoryMap,
+) -> ! {
     // Copy over the old memory map data before we reclaim the bootloader memory
     let mem_map_old: &MemoryMap = unsafe { &mut *mem_map };
     let map = mem_map_old.clone();
@@ -43,6 +47,12 @@ pub extern "C" fn kernel_early_init(memory_linear_map_start: u64, mem_map: *mut 
         .find(|x| x.entry_type == EntryType::Mmio)
         .unwrap()
         .base_addr;
+
+    // TODO: Move this to after we update MMIO addresses once locks are set up properly.
+    // Fork off the secondary cores
+    if core_num != 0 {
+        secondary_core_kmain(core_num);
+    }
 
     // Update our MMIO address to use higher half
     UART.lock()
