@@ -5,7 +5,7 @@
 mod boot_alloc;
 mod init_mmu;
 
-use crate::boot_alloc::{FrameAlloc};
+use crate::boot_alloc::FrameAlloc;
 use crate::init_mmu::init_mmu;
 use align_data::include_aligned;
 use fdt_rs::base::DevTree;
@@ -55,7 +55,10 @@ extern "C" {
     static __bootloader_end: u8;
     static __stack: u8;
 
-    fn init_secondary_core(mailbox_addr: u8, stack_addr: u64);
+    fn init_secondary_core(mailbox_addr: u64, fun_ptr: u64);
+    fn core_1_start();
+    fn core_2_start();
+    fn core_3_start();
 }
 pub fn page_size() -> u64 {
     unsafe { (&__PG_SIZE as *const u8) as u64 }
@@ -170,23 +173,27 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
             .expect("Failed to virtually map kernel");
         offset += page_size();
     }
-    // Also map the stack to the higher half
-    // TODO: Guard page
-    let stack_virt_start = kernel_virt_start + offset;
-    let stack_phys_start = frame_allocator.lock().allocate_frame().expect("Failed to allocate frame for kernel stack") as u64;
-    offset = 0;
-    ttbr1
-        .map_page(
-            stack_phys_start,
-            VirtualAddr(stack_virt_start + offset),
-            MemoryType::NORMAL_CACHEABLE,
-        )
-        .expect("Failed to virtually map stack");
-    offset += page_size();
-    let stack_top = stack_virt_start + offset;
+
+    // Allocate one frame for each CPU's kernel stack
+    let mut kernel_stacks_phys_address: [u64; 4] = [0, 0, 0, 0];
+    let mut kernel_stacks_virt_top: [u64; 4] = [0, 0, 0, 0];
+    // TODO: Guard pages
+    for i in 0..4 {
+        kernel_stacks_phys_address[i] = frame_allocator.lock().allocate_frame().expect("Failed to allocate frame for kernel stack") as u64;
+        ttbr1
+            .map_page(
+                kernel_stacks_phys_address[i],
+                VirtualAddr(kernel_virt_start + offset),
+                MemoryType::NORMAL_CACHEABLE,
+            )
+            .expect("Failed to virtually map stack");
+        offset += page_size();
+        kernel_stacks_virt_top[i] = kernel_virt_start + offset;
+        println!("Phys addr: {:#x}, virt addr: {:#x}", kernel_stacks_phys_address[i], kernel_stacks_virt_top[i]);
+    }
 
     // Linear mapping of all physical RAM into the higher half
-    let memory_linear_map_start = stack_top.next_multiple_of(0x40000000);
+    let memory_linear_map_start = kernel_stacks_virt_top[3].next_multiple_of(0x40000000);
     let max_addr = map_mutex.lock().get_total_mem().to_bytes();
     for page in (0..max_addr).step_by(0x40000000) {
         ttbr1
@@ -226,10 +233,19 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
 
     // TODO: Spin up secondary cores
     println!("Initializng secondary cores...");
-    const CPU_MAILBOX_REGS: [u8; 3] = [0xE0, 0xE8, 0xF0];
-    for register in CPU_MAILBOX_REGS {
+    const CPU_MAILBOX_REGS: [u64; 3] = [0xE0, 0xE8, 0xF0];
+    const ARG_ADDRESSES: [u64; 3] = [0xFA0, 0xFC0, 0xFE0];
+    for (i, register) in CPU_MAILBOX_REGS.iter().enumerate() {
         unsafe {
-            init_secondary_core(register, 0);
+            // Write in the stack pointer arg
+            core::ptr::write_volatile(ARG_ADDRESSES[i] as *mut u64, kernel_stacks_phys_address[i + 1]);
+
+            match register {
+                0xE0 => init_secondary_core(*register, core_1_start as u64),
+                0xE8 => init_secondary_core(*register, core_2_start as u64),
+                0xF0 => init_secondary_core(*register, core_3_start as u64),
+                _ => panic!(),
+            };
         }
     }
     println!("Bootloader has successfully initialized secondary cores");
@@ -252,7 +268,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
         "mov x0, {memory_linear_map_start}", 
         "mov x1, {memory_map_addr}",
         "br {entry}", 
-        stack = in(reg) stack_top, 
+        stack = in(reg) kernel_stacks_virt_top[0], 
         memory_linear_map_start = in(reg) memory_linear_map_start,
         memory_map_addr = in(reg) mem_map_addr,
         entry = in(reg) fn_void_ptr);

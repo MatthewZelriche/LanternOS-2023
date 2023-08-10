@@ -10,20 +10,19 @@
 .macro el_transition label
    // Don't trap to EL3 for fp access
    // don't trap on fp instruction access for EL1 and EL0
-   ldr x1, =CPTR
-   msr cptr_el2, x1
-   ldr x1, =CPACR_EL1
-   msr cpacr_el1, x1	
+   ldr x9, =CPTR
+   msr cptr_el2, x9
+   ldr x9, =CPACR_EL1
+   msr cpacr_el1, x9	
 
    // eret to EL1
-   ldr x1, =CR_EL3
-   msr sctlr_el1, x1
-   ldr x1, =HCR
-   msr hcr_el2, x1
-   ldr x1, =SPSR
-   msr spsr_el2, x1
-   adr x1, \label\()
-   msr elr_el2, x1
-   mrs x6, elr_el2
+   ldr x9, =CR_EL3
+   msr sctlr_el1, x9
+   ldr x9, =HCR
+   msr hcr_el2, x9
+   ldr x9, =SPSR
+   msr spsr_el2, x9
+   adr x9, \label\()
+   msr elr_el2, x9
    eret
 .endmacro
