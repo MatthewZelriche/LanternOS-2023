@@ -12,19 +12,28 @@ pub fn page_size() -> u64 {
     unsafe { (&__PG_SIZE as *const u8) as u64 }
 }
 
+use core::{arch::asm, ops::Deref};
+
 use crate::peripherals::{MAILBOX, UART};
 use generic_once_cell::Lazy;
 use memory::frame_allocator::FrameAlloc;
 use raspi_concurrency::mutex::{Mutex, RawMutex};
 use raspi_memory::{
     memory_map::{EntryType, MemoryMap},
-    page_table::PageAlloc,
+    page_table::{PageAlloc, PageTable},
 };
 use raspi_peripherals::get_mmio_offset_from_peripheral_base;
 
 static FRAME_ALLOCATOR: Lazy<RawMutex, Mutex<FrameAlloc>> =
     Lazy::new(|| Mutex::new(FrameAlloc::new()));
 
+fn invalidate_tlb() {
+    unsafe {
+        asm!("TLBI VMALLE1", "DSB ISH", "ISB");
+    }
+}
+
+// Safety: At this point, assume the TTBR0 table has been totally wiped out
 #[no_mangle]
 pub extern "C" fn secondary_core_kmain(core_num: u64) -> ! {
     // TODO: When we jump to the kernel, we need some way to synchronize the cores to tell the kernel's
@@ -80,10 +89,14 @@ pub extern "C" fn kernel_early_init(
         FRAME_ALLOCATOR.lock().num_free_frames()
     );
 
-    kmain();
+    let ttbr0 = PageTable::new(FRAME_ALLOCATOR.deref()).unwrap();
+    aarch64_cpu::registers::TTBR0_EL1.set_baddr(ttbr0.as_raw_ptr() as u64);
+    invalidate_tlb();
+
+    kmain(ttbr0);
 }
 
-fn kmain() -> ! {
+fn kmain(_ttbr0: PageTable<RawMutex, FrameAlloc>) -> ! {
     kprint!("Kernel initialization complete");
     /*
     // Unmap our identity mapping
