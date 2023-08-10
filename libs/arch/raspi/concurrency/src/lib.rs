@@ -1,3 +1,4 @@
 #![no_std]
 
-pub mod spinlock;
+pub mod dummylock;
+pub mod mutex;

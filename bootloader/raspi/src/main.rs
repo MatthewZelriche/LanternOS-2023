@@ -19,7 +19,7 @@ use fdt_rs::base::DevTree;
 use fdt_rs::error::DevTreeError;
 use fdt_rs::prelude::{FallibleIterator, PropReader};
 use generic_once_cell::{Lazy, OnceCell};
-use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
+use raspi_concurrency::dummylock::{Dummylock, RawDummylock};
 use raspi_memory::mem_size::MemSize;
 use raspi_memory::memory_map::{EntryType, MemoryMap, MemoryMapEntry};
 use raspi_memory::page_table::{
@@ -33,9 +33,9 @@ use raspi_peripherals::{
 };
 
 // Peripheral singletons
-pub static UART: Lazy<RawSpinlock, Spinlock<Uart>> = Lazy::new(|| Spinlock::new(Uart::new()));
-pub static MAILBOX: Lazy<RawSpinlock, Spinlock<Mailbox>> =
-    Lazy::new(|| Spinlock::new(Mailbox::new()));
+pub static UART: Lazy<RawDummylock, Dummylock<Uart>> = Lazy::new(|| Dummylock::new(Uart::new()));
+pub static MAILBOX: Lazy<RawDummylock, Dummylock<Mailbox>> =
+    Lazy::new(|| Dummylock::new(Mailbox::new()));
 
 // TODO: Find a way to handle automatically setting this to page size
 // To avoid having to implement an entire FAT library for the bootloader, we embed the entire
@@ -82,12 +82,12 @@ macro_rules! println {
     };
 }
 
-static MEM_MAP: OnceCell<RawSpinlock, Spinlock<MemoryMap>> = OnceCell::new();
+static MEM_MAP: OnceCell<RawDummylock, Dummylock<MemoryMap>> = OnceCell::new();
 
 // Set once, read-only statics
-static KERNEL_START_ADDR: OnceCell<RawSpinlock, u64> = OnceCell::new();
-static MEMORY_LINEAR_MAP_START: OnceCell<RawSpinlock, u64> = OnceCell::new();
-static KERNEL_STACKS_VIRT_TOP: OnceCell<RawSpinlock, [u64; 4]> = OnceCell::new();
+static KERNEL_START_ADDR: OnceCell<RawDummylock, u64> = OnceCell::new();
+static MEMORY_LINEAR_MAP_START: OnceCell<RawDummylock, u64> = OnceCell::new();
+static KERNEL_STACKS_VIRT_TOP: OnceCell<RawDummylock, [u64; 4]> = OnceCell::new();
 
 #[no_mangle]
 pub extern "C" fn secondary_core_main(core_num: u64, ttbr0_ptr: u64, ttbr1_ptr: u64) -> ! {
@@ -109,7 +109,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
 
     println!("Raspi bootloader is preparing environment for kernel...");
 
-    let map_mutex = MEM_MAP.get_or_init(|| Spinlock::new(MemoryMap::new()));
+    let map_mutex = MEM_MAP.get_or_init(|| Dummylock::new(MemoryMap::new()));
     reserve_memory_regions(dtb_ptr, map_mutex).expect("Failed to create memory map");
 
     // TODO: Not sure why this is necessary...but if I don't reserve the very first page of memory,
@@ -137,7 +137,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     println!("Initializing page frame allocator...");
     // We are definitely singlethreaded in the bootloader, but raspi-paging expects a mutex to
     // a page frame allocator to take advantage of interior mutability
-    let frame_allocator: Spinlock<FrameAlloc> = Spinlock::new(FrameAlloc::new());
+    let frame_allocator: Dummylock<FrameAlloc> = Dummylock::new(FrameAlloc::new());
     for entry in map_mutex.lock().get_entries() {
         match entry.entry_type {
             EntryType::Free => {
@@ -336,7 +336,7 @@ fn jump_to_kernel(core_num: u64) -> ! {
 
 fn reserve_memory_regions(
     dtb_ptr: *const u8,
-    map: &Spinlock<MemoryMap>,
+    map: &Dummylock<MemoryMap>,
 ) -> Result<(), DevTreeError> {
     let dtb: DevTree;
     unsafe {
@@ -488,7 +488,7 @@ fn reserve_memory_regions(
     Ok(())
 }
 
-fn load_elf(kernel_elf: &ElfFile, map: &Spinlock<MemoryMap>) {
+fn load_elf(kernel_elf: &ElfFile, map: &Dummylock<MemoryMap>) {
     // TODO: Less hacky way of loading
     // Copy kernel into memory
     // TODO: Add this to memory map

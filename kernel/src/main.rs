@@ -15,15 +15,15 @@ pub fn page_size() -> u64 {
 use crate::peripherals::{MAILBOX, UART};
 use generic_once_cell::Lazy;
 use memory::frame_allocator::FrameAlloc;
-use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
+use raspi_concurrency::mutex::{Mutex, RawMutex};
 use raspi_memory::{
     memory_map::{EntryType, MemoryMap},
     page_table::PageAlloc,
 };
 use raspi_peripherals::get_mmio_offset_from_peripheral_base;
 
-static FRAME_ALLOCATOR: Lazy<RawSpinlock, Spinlock<FrameAlloc>> =
-    Lazy::new(|| Spinlock::new(FrameAlloc::new()));
+static FRAME_ALLOCATOR: Lazy<RawMutex, Mutex<FrameAlloc>> =
+    Lazy::new(|| Mutex::new(FrameAlloc::new()));
 
 #[no_mangle]
 pub extern "C" fn secondary_core_kmain(core_num: u64) -> ! {
