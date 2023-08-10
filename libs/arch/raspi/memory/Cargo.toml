@@ -6,6 +6,7 @@ crate-type = ["staticlib"]
 
 [dependencies]
 bitfield = "0.14.0"
+lock_api = "0.4.10"
 
 [dependencies.arrayvec]
 version = "0.7.4"

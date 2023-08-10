@@ -77,7 +77,6 @@ static MEM_MAP: OnceCell<RawSpinlock, Spinlock<MemoryMap>> = OnceCell::new();
 
 #[no_mangle]
 pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
-    let mut frame_allocator = FrameAlloc {};
     // Inform the raspi of our desired clock speed for the UART. Necessary for UART to function.
     // Mailbox requires physical address instead of virtual, but we don't have the MMU up yet
     // so it currently doesn't matter.
@@ -114,27 +113,30 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     println!("Loaded Kernel ELF into memory");
 
     println!("Initializing page frame allocator...");
+    // We are definitely singlethreaded in the bootloader, but raspi-paging expects a mutex to
+    // a page frame allocator to take advantage of interior mutability
+    let frame_allocator: Spinlock<FrameAlloc> = Spinlock::new(FrameAlloc::new());
     for entry in map_mutex.lock().get_entries() {
         match entry.entry_type {
             EntryType::Free => {
                 for addr in (entry.base_addr..entry.end_addr).step_by(page_size() as usize) {
                     // If we fail to add a page to the free list, just silently ignore
-                    let _ = frame_allocator.deallocate_frame(addr as *mut u8);
+                    let _ = frame_allocator.lock().deallocate_frame(addr as *mut u8);
                 }
             }
             _ => (),
         }
     }
-    let start_free_frames = frame_allocator.num_free_frames();
+    let start_free_frames = frame_allocator.lock().num_free_frames();
     println!(
         "Successfully initialized page frame allocator with {} free frames.",
         start_free_frames
     );
 
     println!("Enabling MMU...");
-    let mut ttbr1 = PageTable::new(FrameAlloc {}).expect("Failed to construct page table");
+    let mut ttbr1 = PageTable::new(&frame_allocator).expect("Failed to construct page table");
     // Identity map all of physical memory as 1GiB huge pages
-    let mut page_table = PageTable::new(FrameAlloc {}).expect("Failed to construct page table");
+    let mut page_table = PageTable::new(&frame_allocator).expect("Failed to construct page table");
     let max_addr = map_mutex.lock().get_total_mem().to_bytes();
     for page in (0..max_addr).step_by(0x40000000) {
         page_table
@@ -167,7 +169,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     // Also map the stack to the higher half
     // TODO: Guard page
     let stack_virt_start = kernel_virt_start + offset;
-    let stack_phys_start = frame_allocator.allocate_frame().expect("Failed to allocate frame for kernel stack") as u64;
+    let stack_phys_start = frame_allocator.lock().allocate_frame().expect("Failed to allocate frame for kernel stack") as u64;
     offset = 0;
     ttbr1
         .map_page(
@@ -212,7 +214,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
         bl_reserved_count += entry.size.bytes;
     }
     println!("Bootloader allocated {} pages of memory in total", bl_reserved_count / page_size());
-    let final_allocated_pages = start_free_frames - frame_allocator.num_free_frames();
+    let final_allocated_pages = start_free_frames - frame_allocator.lock().num_free_frames();
     // Sanity check to ensure our memory map was updated correctly
     // Safety: Unsafe to allocate ANY frames past this point
     assert!((bl_reserved_count / page_size()) == final_allocated_pages);

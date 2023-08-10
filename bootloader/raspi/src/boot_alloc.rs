@@ -5,6 +5,7 @@
 //! implement an entire heap for the bootloader.
 
 use crate::{page_size, MEM_MAP};
+use core::ptr::write_bytes;
 use generic_once_cell::Lazy;
 use raspi_concurrency::spinlock::{RawSpinlock, Spinlock};
 use raspi_memory::{
@@ -16,8 +17,11 @@ use raspi_memory::{
 // FrameAlloc is a very simple wrapper around our global frame allocator for use by the bootloader
 // This ensures nobody can accidentally call PageFrameAllocator's alloc and dealloc functions directly,
 // as they would go unnoticed by the bootloader's MemoryMap.
-pub struct FrameAlloc;
+pub struct FrameAlloc(PageFrameAllocator);
 impl FrameAlloc {
+    pub fn new() -> Self {
+        FrameAlloc(PageFrameAllocator::new(page_size()))
+    }
     pub fn num_free_frames(&self) -> u64 {
         FRAME_ALLOCATOR.lock().num_free_frames()
     }
@@ -29,6 +33,11 @@ impl raspi_memory::page_table::PageAlloc for FrameAlloc {
             .alloc_frame()
             .expect("Bootloader ran out of physical frames to allocate!")
             as *mut u8;
+
+        unsafe {
+            write_bytes(frame as *mut u8, 0, page_size() as usize);
+        }
+
         match MEM_MAP.get().unwrap().lock().add_entry(MemoryMapEntry {
             base_addr: frame as u64,
             size: MemSize { bytes: page_size() },

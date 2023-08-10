@@ -45,6 +45,7 @@ dependencies = [
  "elf-parse",
  "fdt-rs",
  "generic_once_cell",
+ "lock_api",
  "raspi-concurrency",
  "raspi-memory",
  "raspi-peripherals",
@@ -175,6 +176,7 @@ version = "0.1.0"
 dependencies = [
  "arrayvec",
  "bitfield",
+ "lock_api",
 ]
 
 [[package]]

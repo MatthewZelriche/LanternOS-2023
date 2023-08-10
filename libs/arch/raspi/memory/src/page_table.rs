@@ -1,5 +1,6 @@
 use bitfield::{bitfield, BitRange};
 use core::slice::from_raw_parts_mut;
+use lock_api::{Mutex, RawMutex};
 
 const GIB: u64 = 0x40000000;
 const MIB: u64 = 0x100000;
@@ -26,18 +27,18 @@ pub trait PageAlloc {
 }
 
 /// Represents a single Aarch64 page table, supporting 4KiB granularity.
-pub struct PageTable<'a, T: PageAlloc> {
-    allocator: T,
+pub struct PageTable<'a, S: RawMutex, T: PageAlloc> {
+    allocator: &'a Mutex<S, T>,
     lvl0_table: &'a mut [Lvl0TableDescriptor],
 }
 
-impl<T: PageAlloc> PageTable<'_, T> {
+impl<'a, S: RawMutex, T: PageAlloc> PageTable<'a, S, T> {
     /// Constructs a new, empty page table.
     ///
     /// All page tables allocate memory for the lvl0 table, even if they are empty and contain no mappings.
-    pub fn new(mut allocator: T) -> Result<Self, ()> {
+    pub fn new(allocator: &'a Mutex<S, T>) -> Result<Self, ()> {
         // Allocate a single page for the Level 0 table
-        let page = allocator.allocate_frame()? as *mut Lvl0TableDescriptor;
+        let page = allocator.lock().allocate_frame()? as *mut Lvl0TableDescriptor;
         unsafe {
             Ok(PageTable {
                 allocator,
@@ -141,7 +142,7 @@ impl<T: PageAlloc> PageTable<'_, T> {
         if !lvl0_descriptor.valid() {
             // We need to allocate a Lvl1 table to store in this descriptor, then we need
             // to initialize this descriptor
-            let table_addr = self.allocator.allocate_frame()? as u64;
+            let table_addr = self.allocator.lock().allocate_frame()? as u64;
             lvl0_descriptor.set_valid(true);
             lvl0_descriptor.set_is_table(true);
             lvl0_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -184,7 +185,7 @@ impl<T: PageAlloc> PageTable<'_, T> {
         if !lvl0_descriptor.valid() {
             // We need to allocate a Lvl1 table to store in this descriptor, then we need
             // to initialize this descriptor
-            let table_addr = self.allocator.allocate_frame()? as u64;
+            let table_addr = self.allocator.lock().allocate_frame()? as u64;
             lvl0_descriptor.set_valid(true);
             lvl0_descriptor.set_is_table(true);
             lvl0_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -195,7 +196,7 @@ impl<T: PageAlloc> PageTable<'_, T> {
         let lvl1_descriptor = &mut lvl1_table[virt_addr.lvl1_idx() as usize];
         if !lvl1_descriptor.valid() {
             // We need to allocate a new Lvl2 table to store in this descriptor
-            let table_addr = self.allocator.allocate_frame()? as u64;
+            let table_addr = self.allocator.lock().allocate_frame()? as u64;
             lvl1_descriptor.set_valid(true);
             lvl1_descriptor.set_is_table(true);
             lvl1_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -238,7 +239,7 @@ impl<T: PageAlloc> PageTable<'_, T> {
         if !lvl0_descriptor.valid() {
             // We need to allocate a Lvl1 table to store in this descriptor, then we need
             // to initialize this descriptor
-            let table_addr = self.allocator.allocate_frame()? as u64;
+            let table_addr = self.allocator.lock().allocate_frame()? as u64;
             lvl0_descriptor.set_valid(true);
             lvl0_descriptor.set_is_table(true);
             lvl0_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -249,7 +250,7 @@ impl<T: PageAlloc> PageTable<'_, T> {
         let lvl1_descriptor = &mut lvl1_table[virt_addr.lvl1_idx() as usize];
         if !lvl1_descriptor.valid() {
             // We need to allocate a new Lvl2 table to store in this descriptor
-            let table_addr = self.allocator.allocate_frame()? as u64;
+            let table_addr = self.allocator.lock().allocate_frame()? as u64;
             lvl1_descriptor.set_valid(true);
             lvl1_descriptor.set_is_table(true);
             lvl1_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -260,7 +261,7 @@ impl<T: PageAlloc> PageTable<'_, T> {
         let lvl2_descriptor = &mut lvl2_table[virt_addr.lvl2_idx() as usize];
         if !lvl2_descriptor.valid() {
             // We need to allocate a new Lvl3 table to store in this descriptor
-            let table_addr = self.allocator.allocate_frame()? as u64;
+            let table_addr = self.allocator.lock().allocate_frame()? as u64;
             lvl2_descriptor.set_valid(true);
             lvl2_descriptor.set_is_table(true);
             lvl2_descriptor.set_next_table_addr(table_addr.bit_range(47, 12));
@@ -280,7 +281,7 @@ impl<T: PageAlloc> PageTable<'_, T> {
     }
 }
 
-impl<T: PageAlloc> Drop for PageTable<'_, T> {
+impl<S: RawMutex, T: PageAlloc> Drop for PageTable<'_, S, T> {
     /// Walks the entire allocated page table, freeing each frame
     fn drop(&mut self) {
         for lvl0_descriptor in &mut *self.lvl0_table {
@@ -299,15 +300,22 @@ impl<T: PageAlloc> Drop for PageTable<'_, T> {
                             let page_table_ptr =
                                 (lvl2_descriptor.next_table_addr() << 12) as *mut PageDescriptor;
 
-                            self.allocator.deallocate_frame(page_table_ptr as *mut u8);
+                            self.allocator
+                                .lock()
+                                .deallocate_frame(page_table_ptr as *mut u8);
                         }
-                        self.allocator.deallocate_frame(lvl2_table_ptr as *mut u8);
+                        self.allocator
+                            .lock()
+                            .deallocate_frame(lvl2_table_ptr as *mut u8);
                     }
                 }
-                self.allocator.deallocate_frame(lvl1_table_ptr as *mut u8);
+                self.allocator
+                    .lock()
+                    .deallocate_frame(lvl1_table_ptr as *mut u8);
             }
         }
         self.allocator
+            .lock()
             .deallocate_frame(self.lvl0_table.as_ptr() as *mut u8);
     }
 }

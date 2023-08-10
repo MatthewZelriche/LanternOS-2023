@@ -12,6 +12,7 @@ generic_once_cell = "0.1.1"
 align-data = "0.1.0"
 tock-registers = "0.8.1"
 aarch64-cpu = "9.3.1"
+lock_api = "0.4.10"
 
 [dependencies.fdt-rs]
 version = "0.4.3"

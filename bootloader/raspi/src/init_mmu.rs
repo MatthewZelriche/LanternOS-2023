@@ -3,10 +3,11 @@ use aarch64_cpu::{
     registers::{MAIR_EL1, SCTLR_EL1, TCR_EL1, TTBR0_EL1, TTBR1_EL1},
 };
 
+use lock_api::RawMutex;
 use raspi_memory::page_table::{PageAlloc, PageTable};
 use tock_registers::interfaces::{ReadWriteable, Writeable};
 
-pub fn init_mmu<T: PageAlloc>(ttbr0: &PageTable<T>, ttbr1: &PageTable<T>) {
+pub fn init_mmu<S: RawMutex, T: PageAlloc>(ttbr0: &PageTable<S, T>, ttbr1: &PageTable<S, T>) {
     MAIR_EL1.write(MAIR_EL1::Attr0_Device::nonGathering_nonReordering_noEarlyWriteAck);
     MAIR_EL1.write(
         MAIR_EL1::Attr1_Normal_Inner::WriteBack_NonTransient_ReadWriteAlloc
