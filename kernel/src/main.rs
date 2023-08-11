@@ -19,6 +19,7 @@ use crate::peripherals::{MAILBOX, UART};
 use generic_once_cell::Lazy;
 use memory::frame_allocator::FrameAlloc;
 use raspi_concurrency::mutex::{Mutex, RawMutex};
+use raspi_exception::install_exception_handlers;
 use raspi_memory::{
     memory_map::{EntryType, MemoryMap},
     page_table::{PageAlloc, PageTable},
@@ -72,6 +73,8 @@ pub extern "C" fn kernel_early_init(
         secondary_core_kmain(core_num);
     }
     kprintln!("Performing kernel early init...");
+
+    install_exception_handlers();
 
     // Initialize a page frame allocator for the kernel
     for entry in map.get_entries() {

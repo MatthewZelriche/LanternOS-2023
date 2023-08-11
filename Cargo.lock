@@ -101,6 +101,7 @@ dependencies = [
  "arrayvec",
  "generic_once_cell",
  "raspi-concurrency",
+ "raspi-exception",
  "raspi-memory",
  "raspi-peripherals",
  "tock-registers",

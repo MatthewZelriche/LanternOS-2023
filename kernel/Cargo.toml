@@ -7,6 +7,7 @@ edition = "2021"
 raspi-concurrency = { path = "../libs/arch/raspi/concurrency" }
 raspi-peripherals = { path = "../libs/arch/raspi/peripherals" }
 raspi-memory = { path = "../libs/arch/raspi/memory" }
+raspi-exception = { path = "../libs/arch/raspi/exception" }
 generic_once_cell = "0.1.1"
 tock-registers = "0.8.1"
 aarch64-cpu = { version = "9.x.x" }
