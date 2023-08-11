@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+#![feature(panic_info_message)]
 
 pub mod memory;
 pub mod peripherals;
@@ -70,7 +71,7 @@ pub extern "C" fn kernel_early_init(
     if core_num != 0 {
         secondary_core_kmain(core_num);
     }
-    kprint!("Performing kernel early init...");
+    kprintln!("Performing kernel early init...");
 
     // Initialize a page frame allocator for the kernel
     for entry in map.get_entries() {
@@ -84,11 +85,12 @@ pub extern "C" fn kernel_early_init(
             _ => (),
         }
     }
-    kprint!(
+    kprintln!(
         "Initialized page frame allocator with {} free frames",
         FRAME_ALLOCATOR.lock().num_free_frames()
     );
 
+    // Wipe the identity-mapped page table
     let ttbr0 = PageTable::new(FRAME_ALLOCATOR.deref()).unwrap();
     aarch64_cpu::registers::TTBR0_EL1.set_baddr(ttbr0.as_raw_ptr() as u64);
     invalidate_tlb();
@@ -97,21 +99,7 @@ pub extern "C" fn kernel_early_init(
 }
 
 fn kmain(_ttbr0: PageTable<RawMutex, FrameAlloc>) -> ! {
-    kprint!("Kernel initialization complete");
-    /*
-    // Unmap our identity mapping
-    // TODO: Dehardcode max mem size
-    let mut ttbr0 = unsafe {
-        PageTable::from_raw(
-            aarch64_cpu::registers::TTBR0_EL1.get_baddr() as *mut Lvl0TableDescriptor,
-            page_size(),
-        )
-    };
-    for page in (0..0x100000000u64).step_by(0x40000000) {
-        ttbr0.unmap_1gib_page(VirtualAddr(page));
-    }
-    util::clear_tlb();
-    */
+    kprintln!("Kernel initialization complete");
 
     // Never return from this diverging fn
     panic!("Reached end of kmain!")

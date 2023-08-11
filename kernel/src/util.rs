@@ -18,6 +18,16 @@ macro_rules! kprint {
     ($($arg:tt)*) => {
         {
             use core::fmt::Write;
+            write!(UART.lock(), $($arg)*).unwrap();
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! kprintln {
+    ($($arg:tt)*) => {
+        {
+            use core::fmt::Write;
             writeln!(UART.lock(), $($arg)*).unwrap();
         }
     };
@@ -36,8 +46,15 @@ macro_rules! kprints {
 }
 
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    kprint!("{}", _info);
+fn panic(info: &PanicInfo) -> ! {
+    kprintln!("\nKERNEL PANIC!");
+    if let Some(location) = info.location() {
+        kprintln!("Location: {}", location);
+    }
+    if let Some(message) = info.message() {
+        kprintln!("Reason: \n\n{}", message);
+    }
+
     loop {}
 }
 
