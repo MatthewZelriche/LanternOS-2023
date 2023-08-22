@@ -2,6 +2,7 @@ use core::arch::asm;
 
 use lock_api::GuardSend;
 
+#[derive(Debug)]
 pub struct RawMutex(u64);
 
 unsafe impl lock_api::RawMutex for RawMutex {

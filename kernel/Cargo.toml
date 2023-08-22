@@ -11,6 +11,7 @@ raspi-exception = { path = "../libs/arch/raspi/exception" }
 generic_once_cell = "0.1.1"
 tock-registers = "0.8.1"
 aarch64-cpu = { version = "9.x.x" }
+allocators = { git = "https://github.com/MatthewZelriche/lantern-allocators" }
 
 [dependencies.arrayvec]
 version = "0.7.4"
