@@ -53,6 +53,16 @@ impl<'a, S: RawMutex, T: PageAlloc> PageTable<'a, S, T> {
         self.lvl0_table.as_ptr()
     }
 
+    pub unsafe fn from_raw_ptr(
+        ptr: *const Lvl0TableDescriptor,
+        allocator: &'a Mutex<S, T>,
+    ) -> Self {
+        PageTable {
+            allocator,
+            lvl0_table: from_raw_parts_mut(ptr.cast_mut(), 512),
+        }
+    }
+
     /// Performs a page table walk, translating a Virtual address into a Physical address.
     ///
     /// Returns Err if the page table walk fails for any reason, for example if the requested virtual

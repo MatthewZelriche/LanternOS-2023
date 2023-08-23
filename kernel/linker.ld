@@ -24,4 +24,5 @@ SECTIONS
     {
         *(.bss)
     }
+    __KERNEL_VIRT_END = .;
 }
