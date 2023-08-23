@@ -65,6 +65,7 @@ pub extern "C" fn secondary_core_kmain(core_num: u64) -> ! {
 pub extern "C" fn kernel_early_init(
     core_num: u64,
     memory_linear_map_start: u64,
+    kernel_end: u64,
     mem_map: *mut MemoryMap,
 ) -> ! {
     // Copy over the old memory map data before we reclaim the bootloader memory
@@ -121,7 +122,7 @@ pub extern "C" fn kernel_early_init(
     };
 
     // Initialize kernel heap:
-    let kernel_heap_start = kernel_virt_end().next_multiple_of(page_size());
+    let kernel_heap_start = kernel_end;
     let kernel_heap_end = kernel_heap_start + 0x200000;
     for virt_page in (kernel_heap_start..kernel_heap_end).step_by(page_size() as usize) {
         let phys_page = FRAME_ALLOCATOR

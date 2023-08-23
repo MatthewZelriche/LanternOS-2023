@@ -319,11 +319,13 @@ fn jump_to_kernel(core_num: u64) -> ! {
         asm!("mov sp, {stack}", 
         "mov x0, {core_num}",
         "mov x1, {memory_linear_map_start}", 
-        "mov x2, {memory_map_addr}",
+        "mov x2, {kernel_end}",
+        "mov x3, {memory_map_addr}",
         "br {entry}", 
         stack = in(reg) KERNEL_STACKS_VIRT_TOP.get().unwrap()[core_num as usize], 
         core_num = in(reg) core_num,
         memory_linear_map_start = in(reg) *MEMORY_LINEAR_MAP_START.get().unwrap(),
+        kernel_end = in(reg) KERNEL_STACKS_VIRT_TOP.get().unwrap()[3].next_multiple_of(page_size()),
         memory_map_addr = in(reg) mem_map_addr,
         entry = in(reg) *KERNEL_START_ADDR.get().unwrap());
     }
