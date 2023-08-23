@@ -96,7 +96,8 @@ pub extern "C" fn kernel_early_init(
     // Initialize a page frame allocator for the kernel
     for entry in map.get_entries() {
         match entry.entry_type {
-            EntryType::Free => {
+            // Also free Bootloader memory as its no longer needed
+            EntryType::Bootloader | EntryType::Free => {
                 for addr in (entry.base_addr..entry.end_addr).step_by(page_size() as usize) {
                     // If we fail to add a page to the free list, just silently ignore
                     let _ = FRAME_ALLOCATOR.lock().deallocate_frame(addr as *mut u8);
