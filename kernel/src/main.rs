@@ -27,6 +27,7 @@ use core::{arch::asm, ops::Deref};
 use crate::{
     memory::GLOBAL_ALLOCATOR,
     peripherals::{MAILBOX, UART},
+    util::clear_tlb,
 };
 use aarch64_cpu::registers;
 use alloc::{boxed::Box, vec::Vec};
@@ -43,12 +44,6 @@ use raspi_peripherals::get_mmio_offset_from_peripheral_base;
 
 static FRAME_ALLOCATOR: Lazy<RawMutex, Mutex<FrameAlloc>> =
     Lazy::new(|| Mutex::new(FrameAlloc::new()));
-
-fn invalidate_tlb() {
-    unsafe {
-        asm!("TLBI VMALLE1", "DSB ISH", "ISB");
-    }
-}
 
 // Safety: At this point, assume the TTBR0 table has been totally wiped out
 #[no_mangle]
@@ -155,7 +150,7 @@ pub extern "C" fn kernel_early_init(
     // Wipe the identity-mapped page table
     let ttbr0 = PageTable::new(&FRAME_ALLOCATOR).unwrap();
     registers::TTBR0_EL1.set_baddr(ttbr0.as_raw_ptr() as u64);
-    invalidate_tlb();
+    clear_tlb();
 
     // TODO: Synchronize with secondary threads
     kmain(ttbr0);
