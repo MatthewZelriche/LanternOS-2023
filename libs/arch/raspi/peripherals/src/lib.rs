@@ -27,6 +27,7 @@ impl ConstantsRaspi4 {
     pub const EMMC_OFFSET_FROM_MMIO_BASE: u64 = 0x340000;
 }
 
+#[derive(PartialEq)]
 pub enum Board {
     RPI3,
     RPI4,
