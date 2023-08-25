@@ -72,4 +72,5 @@ fn mmio_write(reg: u64, val: u32) {
 
 #[allow(dead_code)]
 pub mod mailbox;
+pub mod timer;
 pub mod uart;

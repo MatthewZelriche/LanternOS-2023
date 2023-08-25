@@ -77,6 +77,8 @@ macro_rules! println {
     ($($arg:tt)*) => {
         {
             use core::fmt::Write;
+            use raspi_peripherals::timer::uptime;
+            write!(UART.lock(), "[{:.5}] ", uptime().as_secs_f64()).unwrap();
             writeln!(UART.lock(), $($arg)*).unwrap();
         }
     };
@@ -226,21 +228,21 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
         memory_linear_map_start
     );
 
-    println!("Printing memory map: ");
-    println!("");
-    println!("Page size:       {}", MemSize { bytes: page_size() });
     println!(
-        "Reserved Pages:  {}",
-        (map_mutex.lock().get_total_mem() - map_mutex.lock().get_free_mem()) / page_size()
+        "Printing memory map:\n\n\
+        Page size:       {}\n\
+        Reserved Pages:  {}\n\
+        Available Pages: {}\n\
+        Total Memory:    {}\n\
+        Avail Memory:    {}\n\n\
+        {}",
+        MemSize { bytes: page_size() },
+        (map_mutex.lock().get_total_mem() - map_mutex.lock().get_free_mem()) / page_size(),
+        map_mutex.lock().get_free_mem().to_bytes() / page_size(),
+        map_mutex.lock().get_total_mem(),
+        map_mutex.lock().get_free_mem(),
+        map_mutex.lock()
     );
-    println!(
-        "Available Pages: {}",
-        map_mutex.lock().get_free_mem().to_bytes() / page_size()
-    );
-    println!("Total Memory:    {}", map_mutex.lock().get_total_mem());
-    println!("Avail Memory:    {}", map_mutex.lock().get_free_mem());
-    println!("");
-    println!("{}", map_mutex.lock());
     let mut bl_reserved_count = 0;
     for entry in map_mutex
         .lock()
@@ -273,8 +275,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     // TODO: Spin up secondary cores
     // SAFETY: All read-only statics must be initialized by this point
     // Transfer control to the kernel
-    println!("Initializng secondary cores and transferring control to kernel entry point");
-    println!("");
+    println!("Initializng secondary cores and transferring control to kernel entry point...\n");
     const CPU_MAILBOX_REGS: [u64; 3] = [0xE0, 0xE8, 0xF0];
     const ARG_ADDRESSES: [u64; 3] = [0xFA0, 0xFC0, 0xFE0];
     for (i, register) in CPU_MAILBOX_REGS.iter().enumerate() {

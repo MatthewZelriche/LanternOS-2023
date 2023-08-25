@@ -18,7 +18,10 @@ macro_rules! kprint {
     ($($arg:tt)*) => {
         {
             use core::fmt::Write;
-            write!(UART.lock(), $($arg)*).unwrap();
+            use raspi_peripherals::timer::uptime;
+            let mut lock = UART.lock();
+            write!(lock, "[{:.5}] ", uptime().as_secs_f64()).unwrap();
+            write!(lock, $($arg)*).unwrap();
         }
     };
 }
@@ -28,7 +31,10 @@ macro_rules! kprintln {
     ($($arg:tt)*) => {
         {
             use core::fmt::Write;
-            writeln!(UART.lock(), $($arg)*).unwrap();
+            use raspi_peripherals::timer::uptime;
+            let mut lock = UART.lock();
+            write!(lock, "[{:.5}] ", uptime().as_secs_f64()).unwrap();
+            writeln!(lock, $($arg)*).unwrap();
         }
     };
 }
@@ -39,7 +45,7 @@ macro_rules! kprints {
         {
             use core::fmt::Write;
             let mut lock = UART.lock();
-            write!(lock, "[Core {}] ", $core).unwrap();
+            write!(lock, "[{:.5} | Core {}] ", uptime().as_secs_f64(), $core).unwrap();
             writeln!(lock, $($arg)*).unwrap();
         }
     };
@@ -47,12 +53,17 @@ macro_rules! kprints {
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    kprintln!("\nKERNEL PANIC!");
+    // Cant use kprint* macros here because it will result in jumbled text
+    // Need to handle the lock manually
+    use core::fmt::Write;
+    let mut lock = UART.lock();
+
+    writeln!(lock, "\nKERNEL PANIC!").unwrap();
     if let Some(location) = info.location() {
-        kprintln!("Location: {}", location);
+        writeln!(lock, "Location: {}", location).unwrap();
     }
     if let Some(message) = info.message() {
-        kprintln!("Reason: \n\n{}", message);
+        writeln!(lock, "Reason: \n{}", message).unwrap();
     }
 
     loop {}

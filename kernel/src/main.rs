@@ -40,7 +40,7 @@ use raspi_memory::{
     memory_map::{EntryType, MemoryMap},
     page_table::{Lvl0TableDescriptor, MemoryType, PageAlloc, PageTable, VirtualAddr},
 };
-use raspi_peripherals::get_mmio_offset_from_peripheral_base;
+use raspi_peripherals::{get_mmio_offset_from_peripheral_base, timer::uptime};
 
 static FRAME_ALLOCATOR: Lazy<RawMutex, Mutex<FrameAlloc>> =
     Lazy::new(|| Mutex::new(FrameAlloc::new()));
@@ -89,7 +89,8 @@ pub extern "C" fn kernel_early_init(
 
     kprintln!("Performing kernel early init...");
 
-    install_exception_handlers();
+    let addr = install_exception_handlers();
+    kprintln!("Registered exception handlers at {:#x}", addr);
 
     // Initialize a page frame allocator for the kernel
     for entry in map.get_entries() {
