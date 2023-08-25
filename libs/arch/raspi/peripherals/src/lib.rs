@@ -90,7 +90,7 @@ fn mmio_write(reg: u64, val: u32) {
     unsafe { core::intrinsics::volatile_store(reg as *mut u32, val) }
 }
 
-#[allow(dead_code)]
+pub mod emmc;
 pub mod mailbox;
 pub mod timer;
 pub mod uart;
