@@ -8,6 +8,7 @@ use crate::mem_size::MemSize;
 pub enum EntryType {
     #[default]
     Free,
+    Stack,
     DtReserved,
     Firmware,
     Bootloader,
@@ -20,6 +21,7 @@ impl EntryType {
     fn to_string(&self) -> &str {
         match self {
             EntryType::Free => "Free",
+            EntryType::Stack => "Stack",
             EntryType::DtReserved => "DeviceTree",
             EntryType::Firmware => "Firmware",
             EntryType::Bootloader => "Bootloader",

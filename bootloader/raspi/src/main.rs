@@ -114,9 +114,8 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     let map_mutex = MEM_MAP.get_or_init(|| Dummylock::new(MemoryMap::new()));
     reserve_memory_regions(dtb_ptr, map_mutex).expect("Failed to create memory map");
 
-    // TODO: Not sure why this is necessary...but if I don't reserve the very first page of memory,
-    // attempting to write to that region causes cpu faults.
-    // Something to do with QEMU? Or the exception vector?
+    // Reserve first page as its being used by secondary cores by default
+    // We will also want to keep it permanently unmapped to handle null ptr exceptions
     map_mutex
         .lock()
         .add_entry(MemoryMapEntry {
@@ -124,6 +123,20 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
             size: MemSize { bytes: 0x1000 },
             end_addr: 0x1000,
             entry_type: EntryType::Firmware,
+        })
+        .unwrap();
+
+    // We also reserve some pages in low address memory for kernel stacks, so that we can use
+    // stack memory to communicate with the VideoCore GPU
+    let stack_range_start = 0x1000;
+    let stack_range_end = 0x5000;
+    map_mutex
+        .lock()
+        .add_entry(MemoryMapEntry {
+            base_addr: stack_range_start,
+            size: MemSize { bytes: 0x4000 },
+            end_addr: stack_range_end,
+            entry_type: EntryType::Stack,
         })
         .unwrap();
 
@@ -190,16 +203,11 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
         offset += page_size();
     }
 
-    // Allocate one frame for each CPU's kernel stack
-    let mut kernel_stacks_phys_address: [u64; 4] = [0, 0, 0, 0];
+    // Map kernel stacks
+    let kernel_stacks_phys_address: [u64; 4] = [0x1000, 0x2000, 0x3000, 0x4000];
     let mut kernel_stacks_virt_top: [u64; 4] = [0, 0, 0, 0];
     // TODO: Guard pages
     for i in 0..4 {
-        kernel_stacks_phys_address[i] = frame_allocator
-            .lock()
-            .allocate_frame()
-            .expect("Failed to allocate frame for kernel stack")
-            as u64;
         ttbr1
             .map_page(
                 kernel_stacks_phys_address[i],
