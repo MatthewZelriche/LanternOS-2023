@@ -24,7 +24,7 @@ pub fn kernel_virt_end() -> u64 {
 
 use crate::{
     memory::GLOBAL_ALLOCATOR,
-    peripherals::{MAILBOX, UART},
+    peripherals::{EMMC2, MAILBOX, UART},
     util::clear_tlb,
 };
 use aarch64_cpu::registers;
@@ -40,7 +40,11 @@ use raspi_memory::{
     memory_map::{EntryType, MemoryMap},
     page_table::{Lvl0TableDescriptor, MemoryType, PageAlloc, PageTable, VirtualAddr},
 };
-use raspi_peripherals::{get_mmio_offset_from_peripheral_base, timer::uptime};
+use raspi_peripherals::{
+    emmc::{EMMCController, SdResult},
+    get_mmio_offset_from_peripheral_base,
+    timer::uptime,
+};
 
 static FRAME_ALLOCATOR: Lazy<RawMutex, Mutex<FrameAlloc>> =
     Lazy::new(|| Mutex::new(FrameAlloc::new()));
@@ -86,6 +90,7 @@ pub extern "C" fn kernel_early_init(
     MAILBOX.lock().update_mmio_base(
         memory_linear_map_start + peripheral_start_addr + get_mmio_offset_from_peripheral_base(),
     );
+    let _ = EMMC2.set(Mutex::new(unsafe { EMMCController::new(0xFE300000) }));
 
     kprintln!("Performing kernel early init...");
 
@@ -149,6 +154,13 @@ pub extern "C" fn kernel_early_init(
         kernel_heap_start,
         kernel_heap_end
     );
+
+    let init_res = EMMC2.get().unwrap().lock().emmc_init_card();
+    if init_res != SdResult::EMMC_OK {
+        panic!("Failed to initialize SD Card with error: {:?}", init_res);
+    } else {
+        kprintln!("Initialized EMMC2 driver. Storage medium ready to receive block requests.");
+    }
 
     // Wipe the identity-mapped page table
     let ttbr0 = PageTable::new(&FRAME_ALLOCATOR).unwrap();
