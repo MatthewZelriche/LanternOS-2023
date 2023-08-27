@@ -19,6 +19,7 @@ macro_rules! kprint {
         {
             use core::fmt::Write;
             use raspi_peripherals::timer::uptime;
+            use crate::peripherals::UART;
             let mut lock = UART.lock();
             write!(lock, "[{:.5}] ", uptime().as_secs_f64()).unwrap();
             write!(lock, $($arg)*).unwrap();
@@ -32,6 +33,7 @@ macro_rules! kprintln {
         {
             use core::fmt::Write;
             use raspi_peripherals::timer::uptime;
+            use crate::peripherals::UART;
             let mut lock = UART.lock();
             write!(lock, "[{:.5}] ", uptime().as_secs_f64()).unwrap();
             writeln!(lock, $($arg)*).unwrap();
@@ -44,6 +46,7 @@ macro_rules! kprints {
     ($core:expr, $($arg:tt)*) => {
         {
             use core::fmt::Write;
+            use crate::peripherals::UART;
             let mut lock = UART.lock();
             write!(lock, "[{:.5} | Core {}] ", uptime().as_secs_f64(), $core).unwrap();
             writeln!(lock, $($arg)*).unwrap();
