@@ -51,6 +51,7 @@ global_asm!(include_str!("start.S"));
 
 extern "C" {
     static __PG_SIZE: u8;
+    static __STACK_SIZE: u8;
     static __KERNEL_VIRT_START: u8;
     static __stack_end: u8;
     static __bootloader_start: u8;
@@ -64,6 +65,9 @@ extern "C" {
 }
 pub fn page_size() -> u64 {
     unsafe { (&__PG_SIZE as *const u8) as u64 }
+}
+pub fn stack_size() -> u64 {
+    unsafe { (&__STACK_SIZE as *const u8) as u64 }
 }
 pub fn kernel_virt_start() -> u64 {
     unsafe { (&__KERNEL_VIRT_START as *const u8) as u64 }
@@ -129,12 +133,14 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     // We also reserve some pages in low address memory for kernel stacks, so that we can use
     // stack memory to communicate with the VideoCore GPU
     let stack_range_start = 0x1000;
-    let stack_range_end = 0x5000;
+    let stack_range_end = stack_range_start + (stack_size() * 4);
     map_mutex
         .lock()
         .add_entry(MemoryMapEntry {
             base_addr: stack_range_start,
-            size: MemSize { bytes: 0x4000 },
+            size: MemSize {
+                bytes: stack_size() * 4,
+            },
             end_addr: stack_range_end,
             entry_type: EntryType::Stack,
         })
@@ -202,22 +208,37 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
             .expect("Failed to virtually map kernel");
         offset += page_size();
     }
+    println!(
+        "Mapped kernel to higher half range {:#x} - {:#x}",
+        kernel_virt_start,
+        kernel_virt_start + offset
+    );
 
     // Map kernel stacks
-    let kernel_stacks_phys_address: [u64; 4] = [0x1000, 0x2000, 0x3000, 0x4000];
+    let kernel_stacks_phys_start = 0x1000;
+    let mut kernel_stacks_phys_address: [u64; 4] = [0, 0, 0, 0];
     let mut kernel_stacks_virt_top: [u64; 4] = [0, 0, 0, 0];
-    // TODO: Guard pages
     for i in 0..4 {
-        ttbr1
-            .map_page(
-                kernel_stacks_phys_address[i],
-                VirtualAddr(kernel_virt_start + offset),
-                MemoryType::NORMAL_CACHEABLE,
-            )
-            .expect("Failed to virtually map stack");
-        offset += page_size();
+        offset += page_size(); // Guard page
+        kernel_stacks_phys_address[i] = kernel_stacks_phys_start + (i as u64 * stack_size());
+
+        let num_pages = stack_size() / page_size();
+        for j in 0..num_pages {
+            ttbr1
+                .map_page(
+                    kernel_stacks_phys_address[i] + (j * page_size()),
+                    VirtualAddr(kernel_virt_start + offset),
+                    MemoryType::NORMAL_CACHEABLE,
+                )
+                .expect("Failed to virtually map stack");
+            offset += page_size();
+        }
         kernel_stacks_virt_top[i] = kernel_virt_start + offset;
     }
+    println!(
+        "Mapped four kernel stacks of size {:#x} bytes",
+        stack_size()
+    );
 
     // Linear mapping of all physical RAM into the higher half
     let memory_linear_map_start = kernel_stacks_virt_top[3].next_multiple_of(0x40000000);
