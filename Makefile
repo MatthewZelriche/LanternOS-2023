@@ -20,10 +20,10 @@ kernel-dbg:
 	cargo objcopy --bin bootloader-raspi --target aarch64-unknown-none -- -O binary out/kernel8.img
 
 qemu: kernel
-	$(QEMU_PATH)qemu-system-aarch64 -M raspi4b4g -kernel out/kernel8.img -serial stdio -dtb $(DTB_RASPI4)
+	$(QEMU_PATH)qemu-system-aarch64 -M raspi4b4g -kernel out/kernel8.img -serial stdio -dtb $(DTB_RASPI4) -sd out/card.img
 
 qemu-raspi3: kernel
-	$(QEMU_PATH)qemu-system-aarch64 -M raspi3b -kernel out/kernel8.img -serial stdio -dtb $(DTB_RASPI3)
+	$(QEMU_PATH)qemu-system-aarch64 -M raspi3b -kernel out/kernel8.img -serial stdio -dtb $(DTB_RASPI3) -sd out/card.img
 
 clean:
 	cargo clean
