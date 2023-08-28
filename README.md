@@ -7,7 +7,22 @@ LanternOS is a hobbyist 64-bit multitasking kernel that currently supports the R
 devices.
 
 ## Building
-TODO
+Build requirements:
+* Latest Rust Nightly
+* Make
+* Cargo Binutils (`cargo install cargo-binutils`)
+* `qemu-system-aarch64`, if you do not have access to real hardware
+
+Once the build requirements are met, building the project should be as simple as running `make`. This 
+will produce an `out` directory, containing the resulting binaries. These can be installed onto an SD Card
+and used in a real Raspberry Pi, or you can use qemu. To use qemu, run:
+
+`make qemu-raspi3` 
+
+to run on a 
+RPI3 VM. Qemu does not officially support the RPI4, but [patches to provide support exist](https://gitlab.com/qemu-project/qemu/-/issues/1208#note_1435620155). If you build qemu yourself with these patches, you can run this project in a RPI3 VM via:
+
+`make qemu QEMU_PATH=<path-to-qemu>`.
 
 
 ## Roadmap
@@ -18,6 +33,7 @@ TODO
 - [X] Implement statically-sized kernel heap and enable `alloc` crate
 - [X] Simple Read and write to FAT filesystem on SDCard
 - [ ] Implement HAL to allow for easier porting across architectures other than ARM
+- [ ] Automate building of `card.img` for use in qemu
 - [ ] Define Syscall infrastructure
 - [ ] Load userspace applications into lower half
 - [ ] Create `init` userspace process (probably a shell)
