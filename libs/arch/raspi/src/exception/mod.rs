@@ -1,5 +1,3 @@
-#![no_std]
-
 use core::{
     arch::{asm, global_asm},
     fmt::Display,

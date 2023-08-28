@@ -4,9 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-raspi-concurrency = { path = "../../libs/arch/raspi/concurrency" }
-raspi-peripherals = { path = "../../libs/arch/raspi/peripherals" }
-raspi-memory = { path = "../../libs/arch/raspi/memory" }
+raspi = { path = "../../libs/arch/raspi" }
 elf-parse = { path = "../../libs/elf-parse" }
 generic_once_cell = "0.1.1"
 align-data = "0.1.0"

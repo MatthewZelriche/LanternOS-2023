@@ -3,7 +3,7 @@ use aarch64_cpu::{
     registers::{MAIR_EL1, SCTLR_EL1, TCR_EL1, TTBR0_EL1, TTBR1_EL1},
 };
 
-use raspi_memory::page_table::Lvl0TableDescriptor;
+use raspi::memory::page_table::Lvl0TableDescriptor;
 use tock_registers::interfaces::{ReadWriteable, Writeable};
 
 pub fn init_mmu(ttbr0: *const Lvl0TableDescriptor, ttbr1: *const Lvl0TableDescriptor) {

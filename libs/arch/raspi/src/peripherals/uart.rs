@@ -1,4 +1,4 @@
-use crate::{get_default_mmio_base, mmio_read, mmio_write};
+use super::{get_default_mmio_base, mmio_read, mmio_write};
 use bitfield::{Bit, BitMut};
 use core::{fmt::Write, hint};
 

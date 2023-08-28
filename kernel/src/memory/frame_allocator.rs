@@ -1,6 +1,7 @@
+use raspi::memory::{page_frame_allocator::PageFrameAllocator, page_table::PageAlloc};
+
 use crate::page_size;
 use core::ptr::write_bytes;
-use raspi_memory::page_frame_allocator::PageFrameAllocator;
 
 pub struct FrameAlloc(PageFrameAllocator);
 impl FrameAlloc {
@@ -11,7 +12,7 @@ impl FrameAlloc {
         self.0.num_free_frames()
     }
 }
-impl raspi_memory::page_table::PageAlloc for FrameAlloc {
+impl PageAlloc for FrameAlloc {
     fn allocate_frame(&mut self) -> Result<*mut u8, ()> {
         let frame = self
             .0

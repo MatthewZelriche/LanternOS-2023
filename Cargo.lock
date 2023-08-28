@@ -67,9 +67,7 @@ dependencies = [
  "fdt-rs",
  "generic_once_cell",
  "lock_api",
- "raspi-concurrency",
- "raspi-memory",
- "raspi-peripherals",
+ "raspi",
  "tock-registers",
 ]
 
@@ -132,10 +130,7 @@ dependencies = [
  "arrayvec",
  "fatfs",
  "generic_once_cell",
- "raspi-concurrency",
- "raspi-exception",
- "raspi-memory",
- "raspi-peripherals",
+ "raspi",
  "tock-registers",
 ]
 
@@ -203,34 +198,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "raspi-concurrency"
-version = "0.1.0"
-dependencies = [
- "lock_api",
-]
-
-[[package]]
-name = "raspi-exception"
-version = "0.1.0"
-
-[[package]]
-name = "raspi-memory"
-version = "0.1.0"
-dependencies = [
- "arrayvec",
- "bitfield",
- "lock_api",
-]
-
-[[package]]
-name = "raspi-peripherals"
+name = "raspi"
 version = "0.1.0"
 dependencies = [
  "aarch64-cpu",
+ "arrayvec",
  "bitfield",
  "generic_once_cell",
+ "lock_api",
  "log",
- "raspi-concurrency",
  "tock-registers",
 ]
 

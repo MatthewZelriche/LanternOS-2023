@@ -22,18 +22,15 @@ use fdt_rs::error::DevTreeError;
 use fdt_rs::prelude::{FallibleIterator, PropReader};
 use generic_once_cell::{Lazy, OnceCell};
 use linker_vars::{__BL_END, __BL_STACK, __BL_STACK_END, __BL_START};
-use raspi_concurrency::dummylock::{Dummylock, RawDummylock};
-use raspi_memory::mem_size::MemSize;
-use raspi_memory::memory_map::{EntryType, MemoryMap, MemoryMapEntry};
-use raspi_memory::page_table::{
+use raspi::concurrency::dummylock::{Dummylock, RawDummylock};
+use raspi::memory::mem_size::MemSize;
+use raspi::memory::memory_map::{EntryType, MemoryMap, MemoryMapEntry};
+use raspi::memory::page_table::{
     Lvl0TableDescriptor, MemoryType, PageAlloc, PageTable, VirtualAddr,
 };
-use raspi_peripherals::get_board_peripheral_range;
-use raspi_peripherals::mailbox::GetGpuMemory;
-use raspi_peripherals::{
-    mailbox::{Mailbox, Message, SetClockRate},
-    uart::Uart,
-};
+use raspi::peripherals::get_board_peripheral_range;
+use raspi::peripherals::mailbox::{GetGpuMemory, Mailbox, Message, SetClockRate};
+use raspi::peripherals::uart::Uart;
 
 // Writer singleton
 pub static UART: Lazy<RawDummylock, Dummylock<Uart>> = Lazy::new(|| Dummylock::new(Uart::new()));
@@ -67,7 +64,7 @@ macro_rules! println {
     ($($arg:tt)*) => {
         {
             use core::fmt::Write;
-            use raspi_peripherals::timer::uptime;
+            use raspi::peripherals::timer::uptime;
             write!(UART.lock(), "[{:.5}] ", uptime().as_secs_f64()).unwrap();
             writeln!(UART.lock(), $($arg)*).unwrap();
         }

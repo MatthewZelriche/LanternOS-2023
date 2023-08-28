@@ -1512,7 +1512,7 @@ pub const DTO: u32 = 14; // data timeout exponent (guesswork)
 // static mut MMIO_LEGACY_EMMC_CONF: u32 = 0x7e2000d0;
 use core::time::Duration;
 
-use crate::timer::{timer_cycle_count, timer_freq, wait_for};
+use super::timer::{timer_cycle_count, timer_freq, wait_for};
 
 /// Waits for the `delay` specified number of microseconds
 fn timer_wait_micro(delay: u64) {

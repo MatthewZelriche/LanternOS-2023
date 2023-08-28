@@ -2,7 +2,7 @@ use core::{hint, intrinsics::size_of};
 
 use bitfield::{Bit, BitRangeMut};
 
-use crate::{get_default_mmio_base, mmio_read, mmio_write};
+use super::{get_default_mmio_base, mmio_read, mmio_write};
 
 pub struct Mailbox {
     mmio_base: u64,

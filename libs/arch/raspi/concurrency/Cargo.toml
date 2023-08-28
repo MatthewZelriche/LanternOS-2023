@@ -1,8 +1,0 @@
-[package]
-name = "raspi-concurrency"
-version = "0.1.0"
-edition = "2021"
-crate-type = ["staticlib"]
-
-[dependencies]
-lock_api = "0.4.10"

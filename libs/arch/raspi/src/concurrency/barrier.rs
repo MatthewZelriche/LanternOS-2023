@@ -1,4 +1,4 @@
-use crate::mutex::Mutex;
+use super::mutex::Mutex;
 
 pub struct Barrier {
     num_threads: u8,

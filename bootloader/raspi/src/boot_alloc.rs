@@ -6,10 +6,11 @@
 
 use crate::{linker_var, linker_vars::__PG_SIZE, MEM_MAP};
 use core::ptr::write_bytes;
-use raspi_memory::{
+use raspi::memory::{
     mem_size::MemSize,
     memory_map::{EntryType, MemoryMapEntry},
     page_frame_allocator::PageFrameAllocator,
+    page_table::PageAlloc,
 };
 
 // FrameAlloc is a very simple wrapper around our global frame allocator for use by the bootloader
@@ -24,7 +25,7 @@ impl FrameAlloc {
         self.0.num_free_frames()
     }
 }
-impl raspi_memory::page_table::PageAlloc for FrameAlloc {
+impl PageAlloc for FrameAlloc {
     fn allocate_frame(&mut self) -> Result<*mut u8, ()> {
         let pg_size = linker_var!(__PG_SIZE);
         let frame = self

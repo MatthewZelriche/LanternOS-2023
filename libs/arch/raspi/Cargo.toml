@@ -1,5 +1,5 @@
 [package]
-name = "raspi-peripherals"
+name = "raspi"
 version = "0.1.0"
 edition = "2021"
 crate-type = ["staticlib"]
@@ -11,9 +11,13 @@ qemu = []
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-raspi-concurrency = { path = "../concurrency" }
 generic_once_cell = "0.1.1"
 bitfield = "0.14.0"
 tock-registers = "0.8.1"
 aarch64-cpu = "9.3.1"
 log = "0.4.20"
+lock_api = "0.4.10"
+
+[dependencies.arrayvec]
+version = "0.7.4"
+default-features = false

@@ -5,7 +5,7 @@ use core::{
 
 use allocators::allocators::linked_list_allocator::LinkedListAlloc;
 use generic_once_cell::OnceCell;
-use raspi_concurrency::mutex::RawMutex;
+use raspi::concurrency::mutex::RawMutex;
 
 pub mod frame_allocator;
 

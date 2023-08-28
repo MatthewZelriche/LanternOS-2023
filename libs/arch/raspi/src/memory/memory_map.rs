@@ -2,7 +2,7 @@ use core::fmt::Display;
 
 use arrayvec::ArrayVec;
 
-use crate::mem_size::MemSize;
+use super::mem_size::MemSize;
 
 #[derive(Default, Clone, Copy, PartialEq)]
 pub enum EntryType {

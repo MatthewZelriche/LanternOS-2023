@@ -1,7 +1,3 @@
-#![feature(pointer_is_aligned)]
-#![feature(core_intrinsics)]
-#![no_std]
-
 use bitfield::BitRange;
 use tock_registers::interfaces::Readable;
 

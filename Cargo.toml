@@ -4,10 +4,7 @@ members = [
     "kernel",
     "bootloader/raspi",
 
-    "libs/arch/raspi/peripherals",
-    "libs/arch/raspi/concurrency",
-    "libs/arch/raspi/memory",
-    "libs/arch/raspi/exception",
+    "libs/arch/raspi/",
     "libs/elf-parse",
 ]
 
