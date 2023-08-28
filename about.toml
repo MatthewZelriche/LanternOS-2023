@@ -1,0 +1,18 @@
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "Unicode-DFS-2016",
+]
+
+[raspi.clarify]
+license = "MIT"
+
+[[raspi.clarify.files]]
+path='LICENSE-EMMC'
+license='MIT'
+checksum='57f9b083609d223f5d672cf3c20305dbfc9cd575e7e5985001f8fd6349cc6a56'
+
+[[raspi.clarify.files]]
+path='LICENSE'
+license='MIT'
+checksum='078d0c14b8104d03fcbb90d53f8e4d97e6faac4b4179017fe56c8db745164e05'

@@ -2,6 +2,7 @@
 name = "bootloader-raspi"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 
 [dependencies]
 raspi = { path = "../../libs/arch/raspi" }

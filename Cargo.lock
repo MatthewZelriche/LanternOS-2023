@@ -20,7 +20,7 @@ checksum = "1926655ba000b19e21f0402be09a1d52d318c8a8a68622870bfb7af2a71315cd"
 [[package]]
 name = "allocators"
 version = "0.1.0"
-source = "git+https://github.com/MatthewZelriche/lantern-allocators#a6fb7542003c2cc320ed1eb5cf08a323383496ff"
+source = "git+https://github.com/MatthewZelriche/lantern-allocators#ec9c068a0c1c0cffc28bbe68e839daabc49f9f66"
 dependencies = [
  "bit_field",
  "lock_api",
