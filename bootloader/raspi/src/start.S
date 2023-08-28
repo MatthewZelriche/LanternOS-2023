@@ -4,7 +4,8 @@
 // For now, just sets a register for debugging purposes & loops
 _start:
    // No need to park other cores, because if we run in QEMU with kernel8 as a flat
-   // binary, the "hardware" parks the cores automatically until we wake them up with mailbox    
+   // binary, the "hardware" parks the cores automatically until we wake them up with mailbox   
+   // This should be the functionality of real hardware as well 
 
    // Transition from EL2 -> EL1
    // On real hardware (as well as QEMU when booting a raw binary),
@@ -13,7 +14,7 @@ _start:
 
    // Set the start of the stack
    setup_stack:
-   ldr x1, =__stack
+   ldr x1, =__BL_STACK
    mov sp, x1
 
    // zero out the BSS

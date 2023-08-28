@@ -3,12 +3,12 @@ INCLUDE common.ld
 SECTIONS
 {
     . = 0x7FF00; /* 4kib kernel stack */
-    __stack_end = .;
+    __BL_STACK_END = .;
     /* RPI4 expects boot code at this addr */
     /* We also start our stack here */
     . = 0x80000;
-    __stack = .;
-    __bootloader_start = .;
+    __BL_STACK = .;
+    __BL_START = .;
     .text :
     {
       KEEP(*(.text.boot)) *(.text .text.*)
@@ -31,6 +31,6 @@ SECTIONS
         *(.bss)
       __bss_end = .;
     }
-    __bootloader_end = .;
+    __BL_END = .;
     __bss_size = __bss_end - __bss_start;
 }

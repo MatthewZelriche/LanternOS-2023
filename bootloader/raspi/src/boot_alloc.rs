@@ -4,7 +4,7 @@
 //! layouts greater than 1 frame size. This is to keep the bootloader lightweight and avoid having to
 //! implement an entire heap for the bootloader.
 
-use crate::{page_size, MEM_MAP};
+use crate::{linker_var, linker_vars::__PG_SIZE, MEM_MAP};
 use core::ptr::write_bytes;
 use raspi_memory::{
     mem_size::MemSize,
@@ -18,7 +18,7 @@ use raspi_memory::{
 pub struct FrameAlloc(PageFrameAllocator);
 impl FrameAlloc {
     pub fn new() -> Self {
-        FrameAlloc(PageFrameAllocator::new(page_size()))
+        FrameAlloc(PageFrameAllocator::new(linker_var!(__PG_SIZE)))
     }
     pub fn num_free_frames(&self) -> u64 {
         self.0.num_free_frames()
@@ -26,6 +26,7 @@ impl FrameAlloc {
 }
 impl raspi_memory::page_table::PageAlloc for FrameAlloc {
     fn allocate_frame(&mut self) -> Result<*mut u8, ()> {
+        let pg_size = linker_var!(__PG_SIZE);
         let frame = self
             .0
             .alloc_frame()
@@ -33,13 +34,13 @@ impl raspi_memory::page_table::PageAlloc for FrameAlloc {
             as *mut u8;
 
         unsafe {
-            write_bytes(frame as *mut u8, 0, page_size() as usize);
+            write_bytes(frame as *mut u8, 0, pg_size as usize);
         }
 
         match MEM_MAP.get().unwrap().lock().add_entry(MemoryMapEntry {
             base_addr: frame as u64,
-            size: MemSize { bytes: page_size() },
-            end_addr: frame as u64 + page_size(),
+            size: MemSize { bytes: pg_size },
+            end_addr: frame as u64 + pg_size,
             entry_type: EntryType::BLReserved,
         }) {
             Ok(_) => Ok(frame),

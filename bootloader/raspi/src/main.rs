@@ -4,9 +4,11 @@
 
 mod boot_alloc;
 mod init_mmu;
+mod linker_vars;
 
 use crate::boot_alloc::FrameAlloc;
 use crate::init_mmu::init_mmu;
+use crate::linker_vars::{__KERNEL_VIRT_START, __PG_SIZE, __STACK_SIZE};
 use align_data::include_aligned;
 use core::ops::Deref;
 use core::{
@@ -19,6 +21,7 @@ use fdt_rs::base::DevTree;
 use fdt_rs::error::DevTreeError;
 use fdt_rs::prelude::{FallibleIterator, PropReader};
 use generic_once_cell::{Lazy, OnceCell};
+use linker_vars::{__BL_END, __BL_STACK, __BL_STACK_END, __BL_START};
 use raspi_concurrency::dummylock::{Dummylock, RawDummylock};
 use raspi_memory::mem_size::MemSize;
 use raspi_memory::memory_map::{EntryType, MemoryMap, MemoryMapEntry};
@@ -49,31 +52,15 @@ global_asm!(include_str!("el_transition.S"));
 global_asm!(include_str!("start_secondary.S"));
 global_asm!(include_str!("start.S"));
 
+// Some asm functions we need to access from rust
 extern "C" {
-    static __PG_SIZE: u8;
-    static __STACK_SIZE: u8;
-    static __KERNEL_VIRT_START: u8;
-    static __stack_end: u8;
-    static __bootloader_start: u8;
-    static __bootloader_end: u8;
-    static __stack: u8;
-
     fn init_secondary_core(mailbox_addr: u64, fun_ptr: u64);
     fn core_1_start();
     fn core_2_start();
     fn core_3_start();
 }
-pub fn page_size() -> u64 {
-    unsafe { (&__PG_SIZE as *const u8) as u64 }
-}
-pub fn stack_size() -> u64 {
-    unsafe { (&__STACK_SIZE as *const u8) as u64 }
-}
-pub fn kernel_virt_start() -> u64 {
-    unsafe { (&__KERNEL_VIRT_START as *const u8) as u64 }
-}
 pub fn get_page_addr(addr: u64) -> u64 {
-    addr & !(page_size() - 1)
+    addr & !(linker_var!(__PG_SIZE) - 1)
 }
 
 #[macro_export]
@@ -107,6 +94,8 @@ pub extern "C" fn secondary_core_main(core_num: u64, ttbr0_ptr: u64, ttbr1_ptr: 
 
 #[no_mangle]
 pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
+    let page_size = linker_var!(__PG_SIZE);
+    let stack_size = linker_var!(__STACK_SIZE);
     // Inform the raspi of our desired clock speed for the UART. Necessary for UART to function.
     // Mailbox requires physical address instead of virtual, but we don't have the MMU up yet
     // so it currently doesn't matter.
@@ -133,13 +122,13 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     // We also reserve some pages in low address memory for kernel stacks, so that we can use
     // stack memory to communicate with the VideoCore GPU
     let stack_range_start = 0x1000;
-    let stack_range_end = stack_range_start + (stack_size() * 4);
+    let stack_range_end = stack_range_start + (stack_size * 4);
     map_mutex
         .lock()
         .add_entry(MemoryMapEntry {
             base_addr: stack_range_start,
             size: MemSize {
-                bytes: stack_size() * 4,
+                bytes: stack_size * 4,
             },
             end_addr: stack_range_end,
             entry_type: EntryType::Stack,
@@ -162,7 +151,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     for entry in map_mutex.lock().get_entries() {
         match entry.entry_type {
             EntryType::Free => {
-                for addr in (entry.base_addr..entry.end_addr).step_by(page_size() as usize) {
+                for addr in (entry.base_addr..entry.end_addr).step_by(page_size as usize) {
                     // If we fail to add a page to the free list, just silently ignore
                     let _ = frame_allocator.lock().deallocate_frame(addr as *mut u8);
                 }
@@ -194,10 +183,9 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
         .find(|x| x.entry_type == EntryType::Kernel)
         .expect("Failed to find kernel in memory");
 
-    let kernel_virt_start = kernel_virt_start();
+    let kernel_virt_start = linker_var!(__KERNEL_VIRT_START);
     let mut offset = 0;
-    for phys_page in (kernel_region.base_addr..kernel_region.end_addr).step_by(page_size() as usize)
-    {
+    for phys_page in (kernel_region.base_addr..kernel_region.end_addr).step_by(page_size as usize) {
         // TODO: Dehardcode
         ttbr1
             .map_page(
@@ -206,7 +194,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
                 MemoryType::NORMAL_CACHEABLE,
             )
             .expect("Failed to virtually map kernel");
-        offset += page_size();
+        offset += page_size;
     }
     println!(
         "Mapped kernel to higher half range {:#x} - {:#x}",
@@ -219,26 +207,23 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     let mut kernel_stacks_phys_address: [u64; 4] = [0, 0, 0, 0];
     let mut kernel_stacks_virt_top: [u64; 4] = [0, 0, 0, 0];
     for i in 0..4 {
-        offset += page_size(); // Guard page
-        kernel_stacks_phys_address[i] = kernel_stacks_phys_start + (i as u64 * stack_size());
+        offset += page_size; // Guard page
+        kernel_stacks_phys_address[i] = kernel_stacks_phys_start + (i as u64 * stack_size);
 
-        let num_pages = stack_size() / page_size();
+        let num_pages = stack_size / page_size;
         for j in 0..num_pages {
             ttbr1
                 .map_page(
-                    kernel_stacks_phys_address[i] + (j * page_size()),
+                    kernel_stacks_phys_address[i] + (j * page_size),
                     VirtualAddr(kernel_virt_start + offset),
                     MemoryType::NORMAL_CACHEABLE,
                 )
                 .expect("Failed to virtually map stack");
-            offset += page_size();
+            offset += page_size;
         }
         kernel_stacks_virt_top[i] = kernel_virt_start + offset;
     }
-    println!(
-        "Mapped four kernel stacks of size {:#x} bytes",
-        stack_size()
-    );
+    println!("Mapped four kernel stacks of size {:#x} bytes", stack_size);
 
     // Linear mapping of all physical RAM into the higher half
     let memory_linear_map_start = kernel_stacks_virt_top[3].next_multiple_of(0x40000000);
@@ -265,9 +250,9 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
         Total Memory:    {}\n\
         Avail Memory:    {}\n\n\
         {}",
-        MemSize { bytes: page_size() },
-        (map_mutex.lock().get_total_mem() - map_mutex.lock().get_free_mem()) / page_size(),
-        map_mutex.lock().get_free_mem().to_bytes() / page_size(),
+        MemSize { bytes: page_size },
+        (map_mutex.lock().get_total_mem() - map_mutex.lock().get_free_mem()) / page_size,
+        map_mutex.lock().get_free_mem().to_bytes() / page_size,
         map_mutex.lock().get_total_mem(),
         map_mutex.lock().get_free_mem(),
         map_mutex.lock()
@@ -283,12 +268,12 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     }
     println!(
         "Bootloader allocated {} pages of memory in total",
-        bl_reserved_count / page_size()
+        bl_reserved_count / page_size
     );
     let final_allocated_pages = start_free_frames - frame_allocator.lock().num_free_frames();
     // Sanity check to ensure our memory map was updated correctly
     // Safety: Unsafe to allocate ANY frames past this point
-    assert!((bl_reserved_count / page_size()) == final_allocated_pages);
+    assert!((bl_reserved_count / page_size) == final_allocated_pages);
 
     // Enable MMU for the primary core
     init_mmu(page_table.as_raw_ptr(), ttbr1.as_raw_ptr());
@@ -339,6 +324,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
 }
 
 fn jump_to_kernel(core_num: u64) -> ! {
+    let page_size = linker_var!(__PG_SIZE);
     //let fn_void_ptr = kernel_elf.hdr.entry as *const ();
     // Safety: We are about to leave the bootloader entirely and enter kernel init.
     // Normally, grabbing a pointer to a OnceCell blocked by a mutex would be wildly unsafe,
@@ -355,7 +341,7 @@ fn jump_to_kernel(core_num: u64) -> ! {
         stack = in(reg) KERNEL_STACKS_VIRT_TOP.get().unwrap()[core_num as usize], 
         core_num = in(reg) core_num,
         memory_linear_map_start = in(reg) *MEMORY_LINEAR_MAP_START.get().unwrap(),
-        kernel_end = in(reg) KERNEL_STACKS_VIRT_TOP.get().unwrap()[3].next_multiple_of(page_size()),
+        kernel_end = in(reg) KERNEL_STACKS_VIRT_TOP.get().unwrap()[3].next_multiple_of(page_size),
         memory_map_addr = in(reg) mem_map_addr,
         entry = in(reg) *KERNEL_START_ADDR.get().unwrap());
     }
@@ -366,6 +352,7 @@ fn reserve_memory_regions(
     dtb_ptr: *const u8,
     map: &Dummylock<MemoryMap>,
 ) -> Result<(), DevTreeError> {
+    let page_size = linker_var!(__PG_SIZE);
     let dtb: DevTree;
     unsafe {
         // Sound because this memory region will be protected by the memory map for the entire
@@ -431,7 +418,7 @@ fn reserve_memory_regions(
 
     // Find and reserve pages for the DTB
     let dtb_page_start = get_page_addr(dtb_ptr as u64);
-    let dtb_page_end = (dtb_page_start + dtb.totalsize() as u64).next_multiple_of(page_size());
+    let dtb_page_end = (dtb_page_start + dtb.totalsize() as u64).next_multiple_of(page_size);
     let dtb_size_bytes = dtb_page_end - dtb_page_start;
     map.lock()
         .add_entry(MemoryMapEntry {
@@ -475,14 +462,8 @@ fn reserve_memory_regions(
         .map_err(|_| DevTreeError::NotEnoughMemory)?;
 
     // Reserve the stack region
-    let stack_start;
-    let stack_end;
-    unsafe {
-        stack_start = (&__stack_end as *const u8) as u64;
-        stack_end = (&__stack as *const u8) as u64;
-    }
-    let stack_start_page_addr = get_page_addr(stack_start);
-    let stack_end_page_addr = get_page_addr(stack_end); // Stack end is exclusive
+    let stack_start_page_addr = get_page_addr(linker_var!(__BL_STACK_END));
+    let stack_end_page_addr = get_page_addr(linker_var!(__BL_STACK)); // Stack end is exclusive
     let stack_size = stack_end_page_addr - stack_start_page_addr;
     map.lock()
         .add_entry(MemoryMapEntry {
@@ -494,14 +475,8 @@ fn reserve_memory_regions(
         .map_err(|_| DevTreeError::NotEnoughMemory)?;
 
     // Reserve the bootloader region
-    let bl_start;
-    let bl_end;
-    unsafe {
-        bl_start = (&__bootloader_start as *const u8) as u64;
-        bl_end = &__bootloader_end as *const u8 as u64;
-    }
-    let bl_start_page_addr = get_page_addr(bl_start);
-    let bl_end_page_addr = bl_end.next_multiple_of(page_size());
+    let bl_start_page_addr = get_page_addr(linker_var!(__BL_START));
+    let bl_end_page_addr = linker_var!(__BL_END).next_multiple_of(page_size);
     let bl_size = bl_end_page_addr - bl_start_page_addr;
     map.lock()
         .add_entry(MemoryMapEntry {
@@ -529,7 +504,7 @@ fn load_elf(kernel_elf: &ElfFile, map: &Dummylock<MemoryMap>) {
             kernel_memsz += program.memsz;
         }
     }
-    kernel_memsz = kernel_memsz.next_multiple_of(page_size());
+    kernel_memsz = kernel_memsz.next_multiple_of(linker_var!(__PG_SIZE));
     // Find a contiguous region in physical memory to store the segment
     let region = map
         .lock()
