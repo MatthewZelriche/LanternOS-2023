@@ -37,10 +37,10 @@ pub static UART: Lazy<RawDummylock, Dummylock<Uart>> = Lazy::new(|| Dummylock::n
 pub static MAILBOX: Lazy<RawDummylock, Dummylock<Mailbox>> =
     Lazy::new(|| Dummylock::new(Mailbox::new()));
 
-// TODO: Find a way to handle automatically setting this to page size
 // To avoid having to implement an entire FAT library for the bootloader, we embed the entire
 // ELF file directly into the bootloader
-#[repr(align(0x1000))]
+// Align by largest supported page boundary (64KiB)
+#[repr(align(0x10000))]
 struct AlignPage;
 static KERNEL: &[u8] = include_aligned!(AlignPage, "../../../out/lantern-os.elf");
 
