@@ -4,6 +4,7 @@
 #![feature(allocator_api)]
 #![feature(int_roundings)]
 
+pub mod fs;
 pub mod memory;
 pub mod peripherals;
 pub mod util;
@@ -22,13 +23,18 @@ pub fn kernel_virt_end() -> u64 {
     unsafe { (&__KERNEL_VIRT_END as *const u8) as u64 }
 }
 
+use core::time::Duration;
+
 use crate::{
+    fs::Fat32FileSystem,
     memory::GLOBAL_ALLOCATOR,
     peripherals::{EMMC2, MAILBOX, UART},
     util::clear_tlb,
 };
 use aarch64_cpu::registers;
+use alloc::string::String;
 use allocators::allocators::linked_list_allocator::LinkedListAlloc;
+use fatfs::{FileSystem, FsOptions, Read, Write};
 use generic_once_cell::Lazy;
 use memory::frame_allocator::FrameAlloc;
 use raspi_concurrency::{
@@ -42,8 +48,8 @@ use raspi_memory::{
 };
 use raspi_peripherals::{
     emmc::{EMMCController, SdResult},
-    get_mmio_offset_from_peripheral_base,
-    timer::uptime,
+    get_emmc_offset_from_mmio_base, get_mmio_offset_from_peripheral_base,
+    timer::{uptime, wait_for},
 };
 
 static FRAME_ALLOCATOR: Lazy<RawMutex, Mutex<FrameAlloc>> =
@@ -73,6 +79,8 @@ pub extern "C" fn kernel_early_init(
         secondary_core_kmain(core_num);
     }
 
+    let addr = install_exception_handlers();
+
     // Copy over the old memory map data before we reclaim the bootloader memory
     let mem_map_old: &MemoryMap = unsafe { &mut *mem_map };
     let map = mem_map_old.clone();
@@ -90,11 +98,15 @@ pub extern "C" fn kernel_early_init(
     MAILBOX.lock().update_mmio_base(
         memory_linear_map_start + peripheral_start_addr + get_mmio_offset_from_peripheral_base(),
     );
-    let _ = EMMC2.set(Mutex::new(unsafe { EMMCController::new(0xFE300000) }));
-
+    let _ = EMMC2.set(Mutex::new(unsafe {
+        EMMCController::new(
+            (memory_linear_map_start
+                + peripheral_start_addr
+                + get_mmio_offset_from_peripheral_base()
+                + get_emmc_offset_from_mmio_base()) as usize,
+        )
+    }));
     kprintln!("Performing kernel early init...");
-
-    let addr = install_exception_handlers();
     kprintln!("Registered exception handlers at {:#x}", addr);
 
     // Initialize a page frame allocator for the kernel
@@ -162,13 +174,34 @@ pub extern "C" fn kernel_early_init(
         kprintln!("Initialized EMMC2 driver. Storage medium ready to receive block requests.");
     }
 
+    let fs = Fat32FileSystem::new();
+    let blah = FileSystem::new(fs, FsOptions::new()).unwrap();
+    kprintln!("Successfully read FAT filesystem from SDCard");
+
     // Wipe the identity-mapped page table
     let ttbr0 = PageTable::new(&FRAME_ALLOCATOR).unwrap();
     registers::TTBR0_EL1.set_baddr(ttbr0.as_raw_ptr() as u64);
     clear_tlb();
-
-    // TODO: Synchronize with secondary threads
     kprintln!("Kernel initialization complete");
+
+    kprintln!("Writing 'Hello, world!' to file 'hello.txt' at root dir");
+    let mut file = blah.root_dir().create_file("hello.txt").unwrap();
+    file.write("Hello, world!".as_bytes()).unwrap();
+    file.flush().unwrap();
+
+    kprintln!("Waiting 5 seconds...");
+    wait_for(Duration::new(5, 0));
+
+    kprintln!("Opening file 'hello.txt' and reading file contents");
+    let mut file = blah.root_dir().open_file("hello.txt").unwrap();
+    let mut buf = [0u8; 13];
+    let bytes_read = file.read(&mut buf).unwrap();
+    kprintln!(
+        "Read {:?} bytes from file. File contents: {}",
+        bytes_read,
+        String::from_utf8_lossy(&buf)
+    );
+
     BARRIER.wait();
     kmain(ttbr0);
 }

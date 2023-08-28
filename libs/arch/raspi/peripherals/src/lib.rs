@@ -75,12 +75,15 @@ pub fn get_mmio_offset_from_peripheral_base() -> u64 {
     }
 }
 
+// QEMU seems to be using the wrong EMMC address? Or the EMMC driver im using
+// is actually meant for EMMC1 and not EMMC2...
+#[cfg(feature = "qemu")]
 pub fn get_emmc_offset_from_mmio_base() -> u64 {
-    // QEMU seems to be using the wrong EMMC address? Or the EMMC driver im using
-    // is actually meant for EMMC1 and not EMMC2...
-    #[cfg(feature = "qemu")]
-    return ConstantsRaspi3::EMMC_OFFSET_FROM_MMIO_BASE;
+    ConstantsRaspi3::EMMC_OFFSET_FROM_MMIO_BASE
+}
 
+#[cfg(not(feature = "qemu"))]
+pub fn get_emmc_offset_from_mmio_base() -> u64 {
     match get_board() {
         Board::RPI3 => ConstantsRaspi3::EMMC_OFFSET_FROM_MMIO_BASE,
         Board::RPI4 => ConstantsRaspi4::EMMC_OFFSET_FROM_MMIO_BASE,
