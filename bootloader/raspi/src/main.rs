@@ -35,10 +35,8 @@ use raspi_peripherals::{
     uart::Uart,
 };
 
-// Peripheral singletons
+// Writer singleton
 pub static UART: Lazy<RawDummylock, Dummylock<Uart>> = Lazy::new(|| Dummylock::new(Uart::new()));
-pub static MAILBOX: Lazy<RawDummylock, Dummylock<Mailbox>> =
-    Lazy::new(|| Dummylock::new(Mailbox::new()));
 
 // To avoid having to implement an entire FAT library for the bootloader, we embed the entire
 // ELF file directly into the bootloader
@@ -59,6 +57,7 @@ extern "C" {
     fn core_2_start();
     fn core_3_start();
 }
+
 pub fn get_page_addr(addr: u64) -> u64 {
     addr & !(linker_var!(__PG_SIZE) - 1)
 }
@@ -76,12 +75,15 @@ macro_rules! println {
 }
 
 static MEM_MAP: OnceCell<RawDummylock, Dummylock<MemoryMap>> = OnceCell::new();
-
 // Set once, read-only statics
+// These exist so these values can be read-only accessed from all cores as they jump into kernel space
+// MEM_MAP also "becomes" a read-only static near the end of the bootloader, and is declared global
+// for the same reason
 static KERNEL_START_ADDR: OnceCell<RawDummylock, u64> = OnceCell::new();
 static MEMORY_LINEAR_MAP_START: OnceCell<RawDummylock, u64> = OnceCell::new();
 static KERNEL_STACKS_VIRT_TOP: OnceCell<RawDummylock, [u64; 4]> = OnceCell::new();
 
+// Called by core_x_start asm function
 #[no_mangle]
 pub extern "C" fn secondary_core_main(core_num: u64, ttbr0_ptr: u64, ttbr1_ptr: u64) -> ! {
     init_mmu(
@@ -96,16 +98,18 @@ pub extern "C" fn secondary_core_main(core_num: u64, ttbr0_ptr: u64, ttbr1_ptr: 
 pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     let page_size = linker_var!(__PG_SIZE);
     let stack_size = linker_var!(__STACK_SIZE);
+
     // Inform the raspi of our desired clock speed for the UART. Necessary for UART to function.
     // Mailbox requires physical address instead of virtual, but we don't have the MMU up yet
     // so it currently doesn't matter.
+    let mbox = Mailbox::new();
     let mut msg = SetClockRate::new(2, Uart::INIT_RATE_DEF);
-    MAILBOX.lock().send_message((&mut msg) as *mut Message<_>);
+    mbox.send_message((&mut msg) as *mut Message<_>);
 
     println!("Raspi bootloader is preparing environment for kernel...");
 
     let map_mutex = MEM_MAP.get_or_init(|| Dummylock::new(MemoryMap::new()));
-    reserve_memory_regions(dtb_ptr, map_mutex).expect("Failed to create memory map");
+    reserve_memory_regions(dtb_ptr, map_mutex, &mbox).expect("Failed to create memory map");
 
     // Reserve first page as its being used by secondary cores by default
     // We will also want to keep it permanently unmapped to handle null ptr exceptions
@@ -165,8 +169,9 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
         start_free_frames
     );
 
-    let mut ttbr1 = PageTable::new(&frame_allocator).expect("Failed to construct page table");
     // Identity map all of physical memory as 1GiB huge pages
+    // The kernel will later unmap this
+    let mut ttbr1 = PageTable::new(&frame_allocator).expect("Failed to construct page table");
     let mut page_table = PageTable::new(&frame_allocator).expect("Failed to construct page table");
     let max_addr = map_mutex.lock().get_total_mem().to_bytes();
     for page in (0..max_addr).step_by(0x40000000) {
@@ -186,7 +191,6 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     let kernel_virt_start = linker_var!(__KERNEL_VIRT_START);
     let mut offset = 0;
     for phys_page in (kernel_region.base_addr..kernel_region.end_addr).step_by(page_size as usize) {
-        // TODO: Dehardcode
         ttbr1
             .map_page(
                 phys_page,
@@ -226,6 +230,8 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
     println!("Mapped four kernel stacks of size {:#x} bytes", stack_size);
 
     // Linear mapping of all physical RAM into the higher half
+    // We start this mapping at the next 1GiB boundary after the kernel. This means if kernel + stacks
+    // ever grows past 1GiB, we will have problems.
     let memory_linear_map_start = kernel_stacks_virt_top[3].next_multiple_of(0x40000000);
     let max_addr = map_mutex.lock().get_total_mem().to_bytes();
     for page in (0..max_addr).step_by(0x40000000) {
@@ -257,6 +263,8 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
         map_mutex.lock().get_free_mem(),
         map_mutex.lock()
     );
+
+    // Print how many pages the bootloader dynamically allocated from the frame allocator
     let mut bl_reserved_count = 0;
     for entry in map_mutex
         .lock()
@@ -270,13 +278,27 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
         "Bootloader allocated {} pages of memory in total",
         bl_reserved_count / page_size
     );
-    let final_allocated_pages = start_free_frames - frame_allocator.lock().num_free_frames();
+
+    // From now on, we access the page tables via its raw pointer, to avoid borrow checker issues
+    // This is so we can manually invalidate the frame_allocator to guaruntee it isn't used after
+    // this point
+    // We forget the page tables without running destructors because we need that allocated
+    // memory when we enter kernel space
+    let ttbr1_ptr = ttbr1.as_raw_ptr();
+    let page_table_ptr = page_table.as_raw_ptr();
+    core::mem::forget(ttbr1);
+    core::mem::forget(page_table);
+
     // Sanity check to ensure our memory map was updated correctly
-    // Safety: Unsafe to allocate ANY frames past this point
+    let final_allocated_pages = start_free_frames - frame_allocator.lock().num_free_frames();
+    // SAFETY: Unsafe to allocate ANY frames past this point
+    // Kill the frame allocator to provide compile-time error if any attempt is made
+    // to use it beyond this point
+    frame_allocator.into_inner();
     assert!((bl_reserved_count / page_size) == final_allocated_pages);
 
     // Enable MMU for the primary core
-    init_mmu(page_table.as_raw_ptr(), ttbr1.as_raw_ptr());
+    init_mmu(page_table_ptr, ttbr1_ptr);
     println!("Successfully enabled the MMU");
 
     // Set our read-only globals
@@ -286,11 +308,12 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
         .unwrap();
     KERNEL_STACKS_VIRT_TOP.set(kernel_stacks_virt_top).unwrap();
 
-    // TODO: Spin up secondary cores
     // SAFETY: All read-only statics must be initialized by this point
     // Transfer control to the kernel
     println!("Initializng secondary cores and transferring control to kernel entry point...\n");
     const CPU_MAILBOX_REGS: [u64; 3] = [0xE0, 0xE8, 0xF0];
+    // Arg addresses are arbitrarily chosen. They are placed in the first physical page
+    // since thats already used by the hardware to park the secondary cores
     const ARG_ADDRESSES: [u64; 3] = [0xFA0, 0xFC0, 0xFE0];
     for (i, register) in CPU_MAILBOX_REGS.iter().enumerate() {
         unsafe {
@@ -299,14 +322,8 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
                 ARG_ADDRESSES[i] as *mut u64,
                 kernel_stacks_phys_address[i + 1],
             );
-            core::ptr::write_volatile(
-                (ARG_ADDRESSES[i] + 8) as *mut u64,
-                page_table.as_raw_ptr() as u64,
-            );
-            core::ptr::write_volatile(
-                (ARG_ADDRESSES[i] + 16) as *mut u64,
-                ttbr1.as_raw_ptr() as u64,
-            );
+            core::ptr::write_volatile((ARG_ADDRESSES[i] + 8) as *mut u64, page_table_ptr as u64);
+            core::ptr::write_volatile((ARG_ADDRESSES[i] + 16) as *mut u64, ttbr1_ptr as u64);
 
             match register {
                 0xE0 => init_secondary_core(*register, core_1_start as u64),
@@ -316,7 +333,7 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
             };
         }
     }
-    // TODO: Have to drop stuff because rust cant figure out we done when we move to kmain
+
     // Safety: After this point, cannot use singletons not protected by a real spinlock
     // The only exception is MEM_MAP, though we can perform purely read-only access to it only
 
@@ -325,7 +342,6 @@ pub extern "C" fn main(dtb_ptr: *const u8) -> ! {
 
 fn jump_to_kernel(core_num: u64) -> ! {
     let page_size = linker_var!(__PG_SIZE);
-    //let fn_void_ptr = kernel_elf.hdr.entry as *const ();
     // Safety: We are about to leave the bootloader entirely and enter kernel init.
     // Normally, grabbing a pointer to a OnceCell blocked by a mutex would be wildly unsafe,
     // but we know that no bootloader code will ever execute again after we jump to the kernel.
@@ -351,12 +367,14 @@ fn jump_to_kernel(core_num: u64) -> ! {
 fn reserve_memory_regions(
     dtb_ptr: *const u8,
     map: &Dummylock<MemoryMap>,
+    mbox: &Mailbox,
 ) -> Result<(), DevTreeError> {
     let page_size = linker_var!(__PG_SIZE);
     let dtb: DevTree;
     unsafe {
         // Sound because this memory region will be protected by the memory map for the entire
         // lifetime of the os
+        // After the kernel boots it is free to reclaim this mem
         dtb = DevTree::from_raw_pointer(dtb_ptr).expect("Failed to read dtb! Err");
     }
 
@@ -433,7 +451,7 @@ fn reserve_memory_regions(
 
     // Reserve GPU firmware
     let mut msg = GetGpuMemory::new();
-    MAILBOX.lock().send_message((&mut msg) as *mut Message<_>);
+    mbox.send_message((&mut msg) as *mut Message<_>);
     if msg.code != Mailbox::RESP_SUCCESS {
         return Err(DevTreeError::ParseError);
     }
@@ -494,7 +512,6 @@ fn reserve_memory_regions(
 fn load_elf(kernel_elf: &ElfFile, map: &Dummylock<MemoryMap>) {
     // TODO: Less hacky way of loading
     // Copy kernel into memory
-    // TODO: Add this to memory map
     let mut kernel_memsz: u64 = 0;
     for program in kernel_elf
         .program_headers()
@@ -533,10 +550,6 @@ fn load_elf(kernel_elf: &ElfFile, map: &Dummylock<MemoryMap>) {
                 )
             };
 
-            // TODO: This is currently hardcoded because we know in QEMU
-            // (at this point) we can rely on the kernel getting loaded at
-            // address 0, which is what we've linked the kernel to. Once we enable the MMU,
-            // this link position needs to change and we will need to remap the kernel.
             let mem_offset = program.virt_addr - base_addr;
             let mem_segment = unsafe {
                 from_raw_parts_mut(
