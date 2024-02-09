@@ -39,8 +39,8 @@ unsafe impl lock_api::RawMutex for RawMutex {
                 "LDXR x10, [{lock_ptr}]",
                 "cmp x10, #1",                  // Test if the mutex is currently locked
                 "beq 2f",                       // If locked, wait until we can try again later
-                "stxr w11, x9, [{lock_ptr}]",   // Otherwise, attempt a lock
-                "mov {res:w}, w11",             // Did we succeed at getting the lock?
+                "stxr w15, x9, [{lock_ptr}]",   // Otherwise, attempt a lock
+                "mov {res:w}, w15",             // Did we succeed at getting the lock?
                 "DMB SY",
                 "2:",
                 lock_ptr = in(reg) (&self.0) as *const u64,

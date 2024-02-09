@@ -1,5 +1,6 @@
 .align 11
 
+.globl exception_vectors
 exception_vectors:
 .org 0x200
    b current_elx_synchronous_stub
