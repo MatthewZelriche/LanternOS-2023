@@ -13,53 +13,60 @@ unsafe impl lock_api::RawMutex for RawMutex {
         unsafe {
             asm!(
                 "2:",
-                "ldr x9, =1",
-                "LDXR x10, [{lock_ptr}]",
-                "cmp x10, #1",                  // Test if the mutex is currently locked
-                "beq 3f",                       // If locked, wait until we can try again later
-                "stxr w11, x9, [{lock_ptr}]",   // Otherwise, attempt a lock
-                "cmp w11, #0",                  // Did the lock succeed?
-                "beq 4f",                       // Then jump to the end
-                "",
-                "3:",                           // Couldn't attain a lock...
-                "wfe",                          // Sleep CPU until we can try again
-                "b 2b",
-                "4:",                           // Successful lock, prevent re-ordering & exit
-                "DMB SY",
-                lock_ptr = in(reg) (&self.0) as *const u64,
+                "ldaxr {temp}, [{lock_ptr}]",   // Read lock variable, setting exclusive monitor
+                "cmp {temp}, #1",   // Is this mutex already locked? Then try again...
+                "beq 2b",
+                "ldr {temp}, =1",   // Mutex was free during ldaxr, now we try to update the lock exclusively
+                "stlxr {res:w}, {temp}, [{lock_ptr}]",
+                "cmp {res:w}, #0",  // If res is 0, someone else mucked with this memory address since we called ldaxr!
+                                    // The store failed and we will have to try again...
+                "bne 2b",
+                temp = in(reg) 123,
+                lock_ptr = in(reg) (&(self.0)) as *const u64,
+                res = in(reg) 0,
             );
         }
     }
 
     fn try_lock(&self) -> bool {
-        let mut res: u32 = 1;
+        let mut lock_succeed = 1; // Zero means true in this context
         unsafe {
             asm!(
-                "ldr x9, =1",
-                "LDXR x10, [{lock_ptr}]",
-                "cmp x10, #1",                  // Test if the mutex is currently locked
-                "beq 2f",                       // If locked, wait until we can try again later
-                "stxr w15, x9, [{lock_ptr}]",   // Otherwise, attempt a lock
-                "mov {res:w}, w15",             // Did we succeed at getting the lock?
-                "DMB SY",
+                "ldaxr {temp}, [{lock_ptr}]",   // Read lock variable, setting exclusive monitor
+                "cmp {temp}, #1",   // Is this mutex already locked? Bail out and return false
+                "beq 2f",
+                "ldr {temp}, =1",   // Try to update the lock exclusively...
+                "stlxr {res:w}, {temp}, [{lock_ptr}]",  // Set lock_succeed to the value of res
+                                                        // If res is nonzero, we failed to update the lock...
                 "2:",
-                lock_ptr = in(reg) (&self.0) as *const u64,
-                res = inout(reg) res,
+                temp = in(reg) 123,
+                lock_ptr = in(reg) (&(self.0)) as *const u64,
+                res = inout(reg) lock_succeed,
             );
         }
-
-        res == 0
+        lock_succeed == 0
     }
 
     unsafe fn unlock(&self) {
         unsafe {
             asm!(
-            "DMB SY",
-            "ldr x9, =0",
-            "str x9, [{lock_ptr}]",             // Unlock the mutex.
-            "sev",                              // Inform others that they can attempt to
-                                                // lock the mutex again
-            lock_ptr = in(reg) (&self.0) as *const u64,
+                "2:",
+                "ldaxr {temp}, [{lock_ptr}]", // Set the exclusive monitor
+                                              // Note that we don't actually care what the value of lock_ptr is
+                                              // This is because its already required by lock_api that an unlock
+                                              // always be paired with a corresponding lock. So this should never
+                                              // be called if the lock is free. Either way, unlock should always
+                                              // set the mutex to free regardless. (Going from free -> free is harmless)
+                "ldr {temp}, =0",
+                "stlxr {res:w}, {temp}, [{lock_ptr}]",  // Attempt to free the mutex
+                "cmp {res:w}, #0",  // We may have tried to free the mutex at the moment someone else was trying to lock it
+                                    // This will muck up both attempts to modify this address and both will fail.
+                                    // This means in order to properly unlock this mutex we have to try again, until the exclusive monitor
+                                    // informs us that we have successfully reset this address to 0.
+                "bne 2b",
+                temp = in(reg) 123,
+                lock_ptr = in(reg) (&(self.0)) as *const u64,
+                res = in(reg) 0,
             );
         }
     }
