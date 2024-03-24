@@ -1,37 +1,41 @@
-
 <h1 align="center">LanternOS</h1>
 
 ## About
 
-LanternOS is a hobbyist 64-bit multitasking kernel that currently supports the Raspberry Pi 3 and Raspberry Pi 4 
+LanternOS is a hobbyist 64-bit multitasking kernel that currently supports the Raspberry Pi 3 and Raspberry Pi 4
 devices.
 
 ## Building
-Build requirements:
-* Latest Rust Nightly
-* Make
-* Cargo Binutils (`cargo install cargo-binutils`)
-* `qemu-system-aarch64`, if you do not have access to real hardware
 
-Once the build requirements are met, building the project should be as simple as running `make`. This 
+### Disclaimer: This has never been tested on real hardware. Run this on real hardware at your own risk. It is highly recommended to use an emulator such as QEMU.
+
+Build requirements:
+
+- Latest Rust Nightly
+- Make
+- Cargo Binutils (`cargo install cargo-binutils`)
+- `qemu-system-aarch64`, if you do not have access to real hardware
+
+Note that you will also need a file named `card.img` in the `out/` directory that contains a FAT filesystem. This can be created for example with `dd` and `mformat`.
+
+Once the build requirements are met, building the project should be as simple as running `make`. This
 will produce an `out` directory, containing the resulting binaries. These can be installed onto an SD Card
 and used in a real Raspberry Pi, or you can use qemu. To use qemu, run:
 
-`make qemu-raspi3` 
+`make qemu-raspi3`
 
-to run on a 
-RPI3 VM. Qemu does not officially support the RPI4, but [patches to provide support exist](https://gitlab.com/qemu-project/qemu/-/issues/1208#note_1435620155). If you build qemu yourself with these patches, you can run this project in a RPI3 VM via:
+to run on a RPI3 VM. Qemu does not officially support the RPI4, but [patches to provide support exist](https://gitlab.com/qemu-project/qemu/-/issues/1208#note_1435620155). If you build qemu yourself with these patches, you can run this project in a RPI3 VM via:
 
 `make qemu QEMU_PATH=<path-to-qemu>`.
 
-
 ## Roadmap
-- [X] Multi-stage bootloader to load kernel ELF into memory
-- [X] Initialize MMU and load kernel into higher half address space
-- [X] Implement synchronization primitives (`Mutex`, `Barrier`)
-- [X] Initialize secondary cores
-- [X] Implement statically-sized kernel heap and enable `alloc` crate
-- [X] Simple Read and write to FAT filesystem on SDCard
+
+- [x] Multi-stage bootloader to load kernel ELF into memory
+- [x] Initialize MMU and load kernel into higher half address space
+- [x] Implement synchronization primitives (`Mutex`, `Barrier`)
+- [x] Initialize secondary cores
+- [x] Implement statically-sized kernel heap and enable `alloc` crate
+- [x] Simple Read and write to FAT filesystem on SDCard
 - [ ] Implement HAL to allow for easier porting across architectures other than ARM
 - [ ] Automate building of `card.img` for use in qemu
 - [ ] Define Syscall infrastructure
@@ -47,13 +51,13 @@ RPI3 VM. Qemu does not officially support the RPI4, but [patches to provide supp
 
 ## Licensing Information
 
-The kernel and bootloader are licensed under the MIT License. 
+The kernel and bootloader are licensed under the MIT License.
 
 Please see `license.html` for a full list of licensing information, including third-party licenses.
 
 ## Sample Output
 
-What follows is an example output of the kernel log via UART, which is currently the primary method 
+What follows is an example output of the kernel log via UART, which is currently the primary method
 of interfacing with the OS at this time:
 
 ```
@@ -107,8 +111,8 @@ Type: MMIO       | 0x00000000fc000000 - 0x0000000100000000 | 64.000 MiB
 
 KERNEL PANIC!
 Location: libs/arch/raspi/exception/src/lib.rs:73:5
-Reason: 
-Uncaught exception! Dumping CPU State: 
+Reason:
+Uncaught exception! Dumping CPU State:
 
 Exception Syndrome: 0x96000004
 Faulting Address: 0xdeadbeef
@@ -134,7 +138,7 @@ X24: 0xffff000000025a58  X25: 0x0000000000000000
 X26: 0xffff000000231000  X27: 0x00000000fbdf9000
 X28: 0xffff000000232000  X29: 0xffff000000025a88
 X30: 0xffff000000004890
- 
+
 Q00: 0x000000000000f424  Q01: 0x0000000000000000
 Q02: 0x0000000000000000  Q03: 0x0000000000000000
 Q04: 0x0000000000000000  Q05: 0x0000000000000000
@@ -152,5 +156,3 @@ Q26: 0x0000000000000000  Q27: 0x0000000000000000
 Q28: 0x0000000000000000  Q29: 0x0000000000000000
 Q30: 0x0000000000000000  Q31: 0x0000000000000000
 ```
-
-

@@ -1,0 +1,4 @@
+[toolchain]
+channel = "nightly"
+components = [ "llvm-tools" ]
+targets = [ "aarch64-unknown-none" ]
